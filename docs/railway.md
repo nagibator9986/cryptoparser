@@ -97,6 +97,15 @@ railway run crypto-monitor telegram-chats
 railway run crypto-monitor evals --dry-run
 ```
 
+Если deployment успешный, но бот не отвечает в Telegram:
+
+1. Проверьте, что `TELEGRAM_BOT_TOKEN` задан именно у deployed service.
+2. Проверьте логи на ошибки Telegram API: `401`, `404`, `409 Conflict`.
+3. Код при старте автоматически выполняет `deleteWebhook`, чтобы long polling
+   работал после предыдущих webhook-deployments.
+4. В группе бот должен быть добавлен, а команды настройки должен отправлять
+   администратор группы.
+
 Локальная проверка Docker:
 
 ```bash

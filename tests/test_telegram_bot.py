@@ -12,9 +12,29 @@ from crypto_monitor.telegram_bot import (
 )
 
 
+class RecordingTelegramApi(TelegramBotApi):
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, Any], float | None]] = []
+
+    def request(
+        self,
+        method: str,
+        payload: dict[str, Any],
+        *,
+        request_timeout: float | None = None,
+    ) -> Any:
+        self.requests.append((method, payload, request_timeout))
+        return []
+
+
 class FakeTelegramApi:
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.deleted_webhook = False
+
+    def delete_webhook(self, *, drop_pending_updates: bool = False) -> bool:
+        self.deleted_webhook = True
+        return True
 
     def get_updates(self, offset: int | None = None, timeout: int = 30) -> list[dict[str, Any]]:
         return []
@@ -41,11 +61,56 @@ class FakeTelegramApi:
         )
 
 
+class FailingDeleteWebhookApi(FakeTelegramApi):
+    def delete_webhook(self, *, drop_pending_updates: bool = False) -> bool:
+        raise RuntimeError("deleteWebhook failed")
+
+
 def test_parse_command_strips_bot_username() -> None:
     assert parse_command("/crypto_set@CryptoMonitorBot digest_time 09:05") == (
         "crypto_set",
         "digest_time 09:05",
     )
+
+
+def test_telegram_bot_deletes_webhook_before_long_polling(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+    )
+
+    bot.prepare_long_polling()
+
+    assert api.deleted_webhook is True
+
+
+def test_telegram_bot_keeps_running_if_delete_webhook_fails(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FailingDeleteWebhookApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+    )
+
+    bot.prepare_long_polling()
+
+
+def test_telegram_get_updates_uses_timeout_larger_than_long_poll() -> None:
+    api = RecordingTelegramApi()
+
+    api.get_updates(timeout=30)
+
+    assert api.requests == [
+        (
+            "getUpdates",
+            {"timeout": 30, "allowed_updates": ["message", "edited_message"]},
+            45,
+        )
+    ]
 
 
 def test_telegram_set_command_updates_group_settings(tmp_path) -> None:

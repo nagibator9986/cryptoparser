@@ -310,6 +310,7 @@ def telegram_bot(
         pipeline_factory=build_pipeline,
     )
     if once:
+        bot.prepare_long_polling()
         next_offset = bot.poll_once(timeout=poll_timeout)
         console.print(f"Telegram poll completed. next_offset={next_offset}")
         return

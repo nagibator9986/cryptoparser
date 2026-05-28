@@ -92,8 +92,18 @@ class TelegramBotApi:
         self.base_url = f"https://api.telegram.org/bot{token}"
         self.timeout = timeout
 
-    def request(self, method: str, payload: dict[str, Any]) -> Any:
-        response = httpx.post(f"{self.base_url}/{method}", json=payload, timeout=self.timeout)
+    def request(
+        self,
+        method: str,
+        payload: dict[str, Any],
+        *,
+        request_timeout: float | None = None,
+    ) -> Any:
+        response = httpx.post(
+            f"{self.base_url}/{method}",
+            json=payload,
+            timeout=request_timeout or self.timeout,
+        )
         response.raise_for_status()
         data = response.json()
         if not data.get("ok", False):
@@ -108,8 +118,15 @@ class TelegramBotApi:
         }
         if offset is not None:
             payload["offset"] = offset
-        result = self.request("getUpdates", payload)
+        result = self.request("getUpdates", payload, request_timeout=timeout + 15)
         return result if isinstance(result, list) else []
+
+    def delete_webhook(self, *, drop_pending_updates: bool = False) -> bool:
+        result = self.request(
+            "deleteWebhook",
+            {"drop_pending_updates": drop_pending_updates},
+        )
+        return bool(result)
 
     def get_chat_member(self, chat_id: str, user_id: int) -> dict[str, Any]:
         result = self.request("getChatMember", {"chat_id": chat_id, "user_id": user_id})
@@ -160,6 +177,19 @@ class TelegramCommandBot:
         self.admin_checker = admin_checker
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
+    def prepare_long_polling(self) -> None:
+        if hasattr(self.api, "delete_webhook"):
+            try:
+                self.api.delete_webhook(drop_pending_updates=False)
+            except Exception as exc:
+                logger.warning(
+                    "telegram_delete_webhook_failed error=%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+            else:
+                logger.info("telegram_webhook_deleted_for_long_polling")
+
     def poll_once(self, offset: int | None = None, timeout: int = 30) -> int | None:
         next_offset = offset
         for update in self.api.get_updates(offset=offset, timeout=timeout):
@@ -171,6 +201,7 @@ class TelegramCommandBot:
         return next_offset
 
     def run_forever(self, poll_timeout: int = 30, poll_interval: float = 1.0) -> None:
+        self.prepare_long_polling()
         offset: int | None = None
         while True:
             try:
