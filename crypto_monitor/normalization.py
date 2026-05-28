@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -30,7 +30,7 @@ def normalize_datetime(
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     return value.astimezone(zoneinfo_or_utc(timezone_name))
 
 
@@ -86,9 +86,9 @@ def digest_date_or_previous_day(
 ) -> str:
     if digest_date:
         return digest_date
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     local_date = current.astimezone(zoneinfo_or_utc(timezone_name)).date()
     return (local_date - timedelta(days=1)).isoformat()
 
@@ -124,7 +124,7 @@ def is_within_schedule_window(
     window_minutes: int = 5,
 ) -> bool:
     if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
+        now = now.replace(tzinfo=UTC)
     local_now = now.astimezone(zoneinfo_or_utc(timezone_name))
     hour_raw, minute_raw = scheduled_time.split(":", 1)
     scheduled = local_now.replace(

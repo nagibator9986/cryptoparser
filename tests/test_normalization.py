@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from crypto_monitor.normalization import (
@@ -23,12 +23,12 @@ def test_parse_datetime_normalizes_to_almaty() -> None:
 
 
 def test_default_digest_date_is_previous_local_day() -> None:
-    now = datetime(2026, 5, 27, 4, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 27, 4, 0, tzinfo=UTC)
     assert digest_date_or_previous_day(None, now=now) == "2026-05-26"
 
 
 def test_schedule_window_accepts_delivery_slack() -> None:
-    now = datetime(2026, 5, 27, 4, 4, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 27, 4, 4, tzinfo=UTC)
     assert is_within_schedule_window(now, "09:00", "Asia/Almaty")
-    late = datetime(2026, 5, 27, 4, 6, tzinfo=timezone.utc)
+    late = datetime(2026, 5, 27, 4, 6, tzinfo=UTC)
     assert not is_within_schedule_window(late, "09:00", "Asia/Almaty")

@@ -1,5 +1,5 @@
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Any, cast
 
 import httpx
@@ -7,9 +7,9 @@ import httpx
 from crypto_monitor.config import Settings
 from crypto_monitor.storage import SqliteStorage
 from crypto_monitor.telegram_bot import (
-    TelegramConflictError,
     TelegramBotApi,
     TelegramCommandBot,
+    TelegramConflictError,
     parse_command,
     parse_weekdays,
 )
@@ -250,7 +250,7 @@ def test_telegram_default_digest_date_uses_previous_almaty_day(tmp_path) -> None
         settings=_settings(tmp_path),
         storage=storage,
         api=cast(TelegramBotApi, api),
-        now_provider=lambda: datetime(2026, 5, 27, 4, 0, tzinfo=timezone.utc),
+        now_provider=lambda: datetime(2026, 5, 27, 4, 0, tzinfo=UTC),
     )
     settings = storage.get_or_create_telegram_chat_settings("-1001")
 

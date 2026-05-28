@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
@@ -17,13 +17,13 @@ from crypto_monitor.delivery.telegram import TelegramDelivery
 from crypto_monitor.digest_renderer import render_digest_locally
 from crypto_monitor.gemini import DryRunLlmClient, GeminiClient
 from crypto_monitor.models import (
+    WEEKDAY_NAMES,
     Digest,
     ProcessedArticle,
     QaResult,
     RawArticle,
     SourceConfig,
     TelegramChatSettings,
-    WEEKDAY_NAMES,
 )
 from crypto_monitor.normalization import (
     digest_date_or_previous_day,
@@ -191,7 +191,7 @@ class TelegramCommandBot:
         self.collector_runner = collector_runner or CollectorRunner()
         self.pipeline_factory = pipeline_factory or self._default_pipeline_factory
         self.admin_checker = admin_checker
-        self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self.now_provider = now_provider or (lambda: datetime.now(UTC))
 
     def prepare_long_polling(self) -> None:
         if hasattr(self.api, "delete_webhook"):
@@ -292,7 +292,7 @@ class TelegramCommandBot:
     def run_scheduled_jobs(self) -> int:
         now = self.now_provider()
         if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=UTC)
 
         sent = 0
         for chat_settings in self.storage.list_telegram_chat_settings(only_enabled=True):
@@ -724,7 +724,7 @@ class TelegramCommandBot:
     ) -> str:
         now = now or self.now_provider()
         if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=UTC)
         return digest_date_or_previous_day(None, chat_settings.timezone, now)
 
     def _is_delivery_weekday(

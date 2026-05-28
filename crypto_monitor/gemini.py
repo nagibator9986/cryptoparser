@@ -215,9 +215,10 @@ class DryRunLlmClient:
             if "ranked_articles" in prompt and '"articles"' in prompt:
                 ids = re.findall(r'"id":\s*"([^"]+)"', user_prompt)
                 ranked = []
+                kz_markers = ("afsa", "nationalbank", "нбрк")
                 for index, article_id in enumerate(dict.fromkeys(ids)):
                     article_window = _window_around_id(user_prompt.lower(), article_id.lower())
-                    if "afsa" in article_window or "nationalbank" in article_window or "нбрк" in article_window:
+                    if any(marker in article_window for marker in kz_markers):
                         priority = "high"
                         score = 90 - index
                     elif "sec" in article_window or "security" in article_window:

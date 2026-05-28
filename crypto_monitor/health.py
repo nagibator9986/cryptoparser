@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
@@ -50,7 +50,7 @@ def build_health_payload(settings: Settings) -> tuple[int, dict[str, Any]]:
         "service": "crypto-monitor",
         "version": package_version(),
         "env": settings.env,
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(UTC).isoformat(),
         "checks": checks,
     }
     return (200 if ready else 503), payload
@@ -75,7 +75,7 @@ def start_health_server(
                         "ok": True,
                         "service": "crypto-monitor",
                         "version": package_version(),
-                        "time": datetime.now(timezone.utc).isoformat(),
+                        "time": datetime.now(UTC).isoformat(),
                     },
                 )
                 return

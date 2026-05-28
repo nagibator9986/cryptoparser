@@ -162,7 +162,8 @@ class GeminiSkillPipeline:
     ) -> list[ProcessedArticle]:
         if not articles:
             return []
-        candidates = sorted(articles, key=article_sort_key)[: max(total_max_items * 2, total_max_items)]
+        candidate_window = max(total_max_items * 2, total_max_items)
+        candidates = sorted(articles, key=article_sort_key)[:candidate_window]
         try:
             response = self.call_skill(
                 "crypto-news-prioritizer",

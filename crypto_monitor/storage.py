@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from crypto_monitor.models import (
@@ -592,7 +592,7 @@ def dumps_pretty(data: object) -> str:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _needs_source_alert(unavailable_since: str | None) -> bool:
@@ -603,8 +603,8 @@ def _needs_source_alert(unavailable_since: str | None) -> bool:
     except ValueError:
         return False
     if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - started >= timedelta(hours=2)
+        started = started.replace(tzinfo=UTC)
+    return datetime.now(UTC) - started >= timedelta(hours=2)
 
 
 def _article_sort_key(article: ProcessedArticle) -> tuple[int, int, int, float]:

@@ -18,3 +18,5 @@ build/
 .coverage
 htmlcov/
 https:/
+logs*.log
+*.log
