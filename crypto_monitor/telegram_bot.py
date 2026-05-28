@@ -56,31 +56,80 @@ COMMAND_ALIASES = {
     "cm_run": "crypto_run",
     "cm_search": "crypto_search",
     "cm_schedule": "crypto_schedule",
+    "cm_menu": "crypto_menu",
+    "crypto_main": "crypto_menu",
+    "crypto_panel": "crypto_menu",
 }
 
-READ_ONLY_COMMANDS = {"crypto_help", "crypto_settings", "crypto_search"}
+READ_ONLY_COMMANDS = {
+    "crypto_help",
+    "crypto_settings",
+    "crypto_search",
+    "crypto_menu",
+}
 
-HELP_TEXT = """Crypto Monitor commands
-/crypto_start - register this group for digests
-/crypto_settings - show current group settings
-/crypto_set <key> <value> - change one setting
-/crypto_schedule [HH:MM] [days] - show or change delivery schedule
-/crypto_unset <key> - reset sources, min_priority, or last_sent
-/crypto_sources - show source catalog and current selection
-/crypto_sources all - use all enabled sources
-/crypto_sources id1,id2 - use selected source ids
-/crypto_collect - collect articles from selected enabled sources
-/crypto_process - process stored raw articles
-/crypto_digest [YYYY-MM-DD] - build and send a new digest
-/crypto_latest [YYYY-MM-DD] - send an archived digest
-/crypto_run [YYYY-MM-DD] - collect, process, build, and send
-/crypto_search <query> - search processed articles and digests
+CALLBACK_PREFIX = "cm"
 
-Settings keys: timezone, digest_time, digest_limit, section_limit,
-total_limit, min_priority, dry_run, previews, delivery, auto_collect,
-auto_process, weekdays.
-
-Only group administrators can change settings or run pipeline commands."""
+HELP_TEXT = (
+    "Crypto Monitor — ежедневная сводка новостей о цифровых активах "
+    "для банка в Казахстане. Источники собираются автоматически, "
+    "обрабатываются Gemini и публикуются в эту группу.\n"
+    "\n"
+    "── Быстрый старт ──\n"
+    "/crypto_start — зарегистрировать группу и открыть меню\n"
+    "/crypto_menu — открыть меню с кнопками в любой момент\n"
+    "/crypto_help — этот текст\n"
+    "\n"
+    "── Просмотр (доступно всем) ──\n"
+    "/crypto_settings — показать настройки группы\n"
+    "/crypto_search <текст> — поиск по архиву публикаций и сводок\n"
+    "\n"
+    "── Настройка ──\n"
+    "/crypto_set <ключ> <значение> — изменить настройку\n"
+    "/crypto_unset <ключ> — сброс sources, min_priority, weekdays или last_sent\n"
+    "\n"
+    "Ключи /crypto_set:\n"
+    "  delivery on|off          — плановая отправка по расписанию\n"
+    "  timezone Asia/Almaty     — часовой пояс расписания (IANA)\n"
+    "  digest_time HH:MM        — время отправки в локальной TZ\n"
+    "  weekdays <значение>      — дни отправки\n"
+    "  digest_limit 1..100      — сколько raw-статей брать в обработку\n"
+    "  section_limit 1..20      — максимум публикаций в одной секции\n"
+    "  total_limit 1..100       — итоговый размер сводки\n"
+    "  min_priority low|medium|high|critical — фильтр по приоритету\n"
+    "  dry_run on|off           — режим без вызовов Gemini API\n"
+    "  previews on|off          — превью ссылок в Telegram\n"
+    "  auto_collect on|off      — авто-сбор перед плановой сводкой\n"
+    "  auto_process on|off      — авто-обработка перед плановой сводкой\n"
+    "\n"
+    "── Расписание ──\n"
+    "/crypto_schedule — показать текущее расписание\n"
+    "/crypto_schedule HH:MM — изменить только время отправки\n"
+    "/crypto_schedule HH:MM <дни> — время и дни одной командой\n"
+    "Значения дней: daily, weekdays, weekends, mon-fri, mon,wed,fri, "
+    "пн-пт, пн,ср,пт, будни, выходные.\n"
+    "\n"
+    "── Источники ──\n"
+    "/crypto_sources — каталог и текущий выбор\n"
+    "/crypto_sources all — использовать все включённые источники\n"
+    "/crypto_sources id1,id2 — оставить только перечисленные id\n"
+    "\n"
+    "── Пайплайн вручную ──\n"
+    "/crypto_collect — собрать raw-статьи из выбранных источников\n"
+    "/crypto_process — пропустить raw через Gemini skills\n"
+    "/crypto_digest [YYYY-MM-DD] — собрать и отправить сводку\n"
+    "/crypto_latest [YYYY-MM-DD] — отправить архивную сводку\n"
+    "/crypto_run [YYYY-MM-DD] — collect + process + digest одной командой\n"
+    "\n"
+    "── Доступы ──\n"
+    "Менять настройки и запускать пайплайн могут только администраторы "
+    "группы. /crypto_help, /crypto_menu, /crypto_settings и /crypto_search "
+    "доступны всем участникам.\n"
+    "\n"
+    "── Алиасы ──\n"
+    "Все команды доступны также с префиксом /cm_ (например /cm_start, "
+    "/cm_menu, /cm_digest)."
+)
 
 
 class TelegramApiError(RuntimeError):
@@ -130,7 +179,7 @@ class TelegramBotApi:
     def get_updates(self, offset: int | None = None, timeout: int = 30) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "timeout": timeout,
-            "allowed_updates": ["message", "edited_message"],
+            "allowed_updates": ["message", "edited_message", "callback_query"],
         }
         if offset is not None:
             payload["offset"] = offset
@@ -156,6 +205,7 @@ class TelegramBotApi:
         parse_mode: str | None = None,
         disable_web_page_preview: bool = True,
         reply_to_message_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> None:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
@@ -166,7 +216,43 @@ class TelegramBotApi:
             payload["parse_mode"] = parse_mode
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         self.request("sendMessage", payload)
+
+    def edit_message_text(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+        disable_web_page_preview: bool = True,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text[:4096],
+            "disable_web_page_preview": disable_web_page_preview,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        self.request("editMessageText", payload)
+
+    def answer_callback_query(
+        self,
+        callback_query_id: str,
+        *,
+        text: str = "",
+        show_alert: bool = False,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "callback_query_id": callback_query_id,
+            "show_alert": show_alert,
+        }
+        if text:
+            payload["text"] = text[:200]
+        self.request("answerCallbackQuery", payload)
 
 
 class TelegramCommandBot:
@@ -239,6 +325,11 @@ class TelegramCommandBot:
             time.sleep(poll_interval)
 
     def handle_update(self, update: dict[str, Any]) -> None:
+        callback = update.get("callback_query")
+        if callback:
+            self._handle_callback_query(callback)
+            return
+
         message = update.get("message") or update.get("edited_message") or {}
         text = str(message.get("text") or "").strip()
         parsed = parse_command(text)
@@ -265,19 +356,21 @@ class TelegramCommandBot:
             int(user_id or 0),
             chat_type,
         ):
-            message = (
-                "Команды настройки и запуска доступны "
-                "только администраторам группы."
-            )
             self._send_plain(
                 chat_id,
-                message,
+                "Команды настройки и запуска доступны только администраторам группы.",
                 reply_to_message_id=reply_to_message_id,
             )
             return
 
         try:
-            response = self._dispatch(command, args, chat_id, chat_title)
+            response = self._dispatch(
+                command,
+                args,
+                chat_id,
+                chat_title,
+                reply_to_message_id,
+            )
         except Exception as exc:
             logger.exception(
                 "telegram_command_failed command=%s chat_id=%s",
@@ -344,15 +437,35 @@ class TelegramCommandBot:
         args: str,
         chat_id: str,
         chat_title: str | None,
+        reply_to_message_id: int | None = None,
     ) -> str | None:
         if command == "crypto_help":
             return HELP_TEXT
+        if command == "crypto_menu":
+            chat_settings = self.storage.get_or_create_telegram_chat_settings(
+                chat_id,
+                chat_title,
+            )
+            self._send_keyboard(
+                chat_id,
+                self._main_menu_text(chat_settings),
+                self._main_menu_markup(),
+                reply_to_message_id=reply_to_message_id,
+            )
+            return None
         if command == "crypto_start":
             chat_settings = self.storage.get_or_create_telegram_chat_settings(
                 chat_id,
                 chat_title,
             )
-            return "Группа подключена.\n\n" + format_chat_settings(chat_settings)
+            text = "Группа подключена.\n\n" + self._main_menu_text(chat_settings)
+            self._send_keyboard(
+                chat_id,
+                text,
+                self._main_menu_markup(),
+                reply_to_message_id=reply_to_message_id,
+            )
+            return None
         if command == "crypto_settings":
             chat_settings = self.storage.load_telegram_chat_settings(chat_id)
             if not chat_settings:
@@ -772,6 +885,435 @@ class TelegramCommandBot:
             llm=llm,
             skill_loader=SkillLoader(self.settings.skills_root),
         )
+
+    # ── Inline-menu UI ──
+
+    def _send_keyboard(
+        self,
+        chat_id: str,
+        text: str,
+        markup: dict[str, Any],
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> None:
+        self.api.send_message(
+            chat_id,
+            text,
+            disable_web_page_preview=True,
+            reply_to_message_id=reply_to_message_id,
+            reply_markup=markup,
+        )
+
+    def _main_menu_text(self, chat_settings: TelegramChatSettings) -> str:
+        return (
+            "Crypto Monitor — главное меню\n"
+            "Выберите раздел кнопками ниже.\n"
+            "\n"
+            + format_chat_settings(chat_settings)
+        )
+
+    def _menu_text(self, chat_settings: TelegramChatSettings, target: str) -> str:
+        if target == "settings":
+            return "Настройки группы\n\n" + format_chat_settings(chat_settings)
+        if target == "schedule":
+            return (
+                "Расписание плановой отправки.\n"
+                "Время и таймзону меняйте через /crypto_set, дни — кнопками ниже.\n"
+                "\n"
+                + format_schedule(chat_settings)
+            )
+        if target == "priority":
+            return (
+                "Минимальный приоритет публикаций в сводке.\n"
+                f"Сейчас: {chat_settings.min_priority}.\n"
+                "Публикации ниже выбранного уровня в сводку не попадают."
+            )
+        if target == "sources":
+            selected = (
+                "все включённые" if not chat_settings.source_ids
+                else ", ".join(chat_settings.source_ids)
+            )
+            return (
+                "Источники.\n"
+                f"Текущий выбор: {selected}.\n"
+                "Кнопки переключают конкретные источники; "
+                "«Все включённые» сбрасывает выбор."
+            )
+        if target == "actions":
+            return (
+                "Действия пайплайна.\n"
+                "Каждая кнопка выполняет ту же команду, что и слэш-команда.\n"
+                "Тяжёлые операции (Gemini) могут занять до минуты — "
+                "результат придёт отдельным сообщением."
+            )
+        return self._main_menu_text(chat_settings)
+
+    @staticmethod
+    def _main_menu_markup() -> dict[str, Any]:
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "Настройки", "callback_data": "cm:menu:settings"},
+                    {"text": "Расписание", "callback_data": "cm:menu:schedule"},
+                ],
+                [
+                    {"text": "Источники", "callback_data": "cm:menu:sources"},
+                    {"text": "Приоритет", "callback_data": "cm:menu:priority"},
+                ],
+                [
+                    {"text": "Действия", "callback_data": "cm:menu:actions"},
+                    {"text": "Помощь", "callback_data": "cm:help"},
+                ],
+            ]
+        }
+
+    @staticmethod
+    def _settings_menu_markup(s: TelegramChatSettings) -> dict[str, Any]:
+        def toggle(label: str, key: str, current: bool) -> dict[str, str]:
+            mark = "ON" if current else "OFF"
+            return {"text": f"{label}: {mark}", "callback_data": f"cm:toggle:{key}"}
+
+        return {
+            "inline_keyboard": [
+                [toggle("Доставка", "delivery", s.enabled)],
+                [toggle("Dry-run", "dry_run", s.dry_run)],
+                [toggle("Auto-сбор", "auto_collect", s.auto_collect)],
+                [toggle("Auto-обработка", "auto_process", s.auto_process)],
+                [toggle("Превью ссылок", "previews", not s.disable_web_page_preview)],
+                [{"text": "<< В меню", "callback_data": "cm:menu:main"}],
+            ]
+        }
+
+    @staticmethod
+    def _schedule_menu_markup(s: TelegramChatSettings) -> dict[str, Any]:
+        current = format_weekdays(s.digest_weekdays)
+
+        def days(label: str, preset: str) -> dict[str, str]:
+            mark = " *" if current == preset else ""
+            return {"text": f"{label}{mark}", "callback_data": f"cm:weekdays:{preset}"}
+
+        return {
+            "inline_keyboard": [
+                [days("Каждый день", "daily"), days("Будни", "weekdays")],
+                [days("Выходные", "weekends")],
+                [{"text": "<< В меню", "callback_data": "cm:menu:main"}],
+            ]
+        }
+
+    @staticmethod
+    def _priority_menu_markup(s: TelegramChatSettings) -> dict[str, Any]:
+        def prio(label: str, value: str) -> dict[str, str]:
+            mark = " *" if s.min_priority == value else ""
+            return {"text": f"{label}{mark}", "callback_data": f"cm:priority:{value}"}
+
+        return {
+            "inline_keyboard": [
+                [prio("Low", "low"), prio("Medium", "medium")],
+                [prio("High", "high"), prio("Critical", "critical")],
+                [{"text": "<< В меню", "callback_data": "cm:menu:main"}],
+            ]
+        }
+
+    def _sources_menu_markup(self, s: TelegramChatSettings) -> dict[str, Any]:
+        sources = self._all_sources()
+        selected = set(s.source_ids)
+        using_all = not selected
+        rows: list[list[dict[str, str]]] = [
+            [
+                {
+                    "text": ("[*] Все включённые" if using_all else "Все включённые"),
+                    "callback_data": "cm:src:all",
+                }
+            ]
+        ]
+        for source in sources:
+            if not source.enabled:
+                continue
+            chosen = using_all or source.id in selected
+            mark = "[*]" if chosen else "[ ]"
+            rows.append(
+                [
+                    {
+                        "text": f"{mark} {source.id}",
+                        "callback_data": f"cm:src:toggle:{source.id}",
+                    }
+                ]
+            )
+        rows.append([{"text": "<< В меню", "callback_data": "cm:menu:main"}])
+        return {"inline_keyboard": rows}
+
+    @staticmethod
+    def _actions_menu_markup() -> dict[str, Any]:
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "Сбор raw", "callback_data": "cm:run:collect"},
+                    {"text": "Обработка", "callback_data": "cm:run:process"},
+                ],
+                [
+                    {"text": "Собрать сводку", "callback_data": "cm:run:digest"},
+                    {"text": "Архив (последняя)", "callback_data": "cm:run:latest"},
+                ],
+                [{"text": "<< В меню", "callback_data": "cm:menu:main"}],
+            ]
+        }
+
+    def _render_menu(
+        self,
+        chat_id: str,
+        message_id: int | None,
+        chat_settings: TelegramChatSettings,
+        target: str,
+    ) -> None:
+        markups = {
+            "main": self._main_menu_markup(),
+            "settings": self._settings_menu_markup(chat_settings),
+            "schedule": self._schedule_menu_markup(chat_settings),
+            "priority": self._priority_menu_markup(chat_settings),
+            "sources": self._sources_menu_markup(chat_settings),
+            "actions": self._actions_menu_markup(),
+        }
+        markup = markups.get(target, markups["main"])
+        text = (
+            self._main_menu_text(chat_settings)
+            if target == "main"
+            else self._menu_text(chat_settings, target)
+        )
+        if message_id is None:
+            self._send_keyboard(chat_id, text, markup)
+            return
+        try:
+            self.api.edit_message_text(
+                chat_id,
+                message_id,
+                text,
+                reply_markup=markup,
+            )
+        except TelegramApiError as exc:
+            logger.warning(
+                "telegram_edit_message_failed chat_id=%s target=%s: %s",
+                chat_id,
+                target,
+                exc,
+            )
+            self._send_keyboard(chat_id, text, markup)
+
+    # ── Callback queries (button taps) ──
+
+    def _handle_callback_query(self, callback: dict[str, Any]) -> None:
+        callback_id = str(callback.get("id") or "")
+        data = str(callback.get("data") or "")
+        message = callback.get("message") or {}
+        chat = message.get("chat") or {}
+        chat_id = str(chat.get("id") or "")
+        message_id = message.get("message_id")
+        chat_title = _chat_title(chat)
+        chat_type = str(chat.get("type") or "")
+        user = callback.get("from") or {}
+        user_id = int(user.get("id") or 0)
+
+        if not chat_id or not data.startswith(f"{CALLBACK_PREFIX}:"):
+            if callback_id:
+                self._safe_answer_callback(callback_id)
+            return
+
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else ""
+        args = parts[2:]
+
+        write_actions = {"toggle", "priority", "weekdays", "src", "run"}
+        if action in write_actions and not self._is_authorized(
+            chat_id,
+            user_id,
+            chat_type,
+        ):
+            self._safe_answer_callback(
+                callback_id,
+                text="Только администраторы группы могут менять настройки.",
+                alert=True,
+            )
+            return
+
+        # Long-running actions: ack immediately, then run in foreground.
+        if action == "run":
+            self._safe_answer_callback(callback_id, text="Запускаю...")
+            try:
+                self._run_callback_action(args, chat_id, chat_title)
+            except Exception as exc:
+                logger.exception(
+                    "telegram_callback_run_failed args=%s chat_id=%s",
+                    args,
+                    chat_id,
+                )
+                self._send_plain(
+                    chat_id,
+                    f"Ошибка: {type(exc).__name__}: {exc}",
+                )
+            return
+
+        try:
+            notice = self._dispatch_callback(
+                action,
+                args,
+                chat_id,
+                chat_title,
+                message_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "telegram_callback_failed data=%s chat_id=%s",
+                data,
+                chat_id,
+            )
+            notice = f"Ошибка: {type(exc).__name__}: {exc}"
+
+        self._safe_answer_callback(callback_id, text=notice or "")
+
+    def _dispatch_callback(
+        self,
+        action: str,
+        args: list[str],
+        chat_id: str,
+        chat_title: str | None,
+        message_id: int | None,
+    ) -> str:
+        if action == "help":
+            self._send_plain(chat_id, HELP_TEXT)
+            return "Открыл помощь"
+
+        chat_settings = self.storage.get_or_create_telegram_chat_settings(
+            chat_id,
+            chat_title,
+        )
+
+        if action == "menu":
+            target = args[0] if args else "main"
+            self._render_menu(chat_id, message_id, chat_settings, target)
+            return ""
+
+        if action == "toggle":
+            key = args[0] if args else ""
+            if key == "delivery":
+                chat_settings.enabled = not chat_settings.enabled
+                notice = f"Доставка: {'ON' if chat_settings.enabled else 'OFF'}"
+            elif key == "dry_run":
+                chat_settings.dry_run = not chat_settings.dry_run
+                notice = f"Dry-run: {'ON' if chat_settings.dry_run else 'OFF'}"
+            elif key == "auto_collect":
+                chat_settings.auto_collect = not chat_settings.auto_collect
+                notice = f"Auto-сбор: {'ON' if chat_settings.auto_collect else 'OFF'}"
+            elif key == "auto_process":
+                chat_settings.auto_process = not chat_settings.auto_process
+                notice = (
+                    f"Auto-обработка: {'ON' if chat_settings.auto_process else 'OFF'}"
+                )
+            elif key == "previews":
+                chat_settings.disable_web_page_preview = (
+                    not chat_settings.disable_web_page_preview
+                )
+                state = "OFF" if chat_settings.disable_web_page_preview else "ON"
+                notice = f"Превью ссылок: {state}"
+            else:
+                return f"Неизвестная настройка: {key}"
+            self.storage.save_telegram_chat_settings(chat_settings)
+            self._render_menu(chat_id, message_id, chat_settings, "settings")
+            return notice
+
+        if action == "priority":
+            value = args[0] if args else "low"
+            if value not in PRIORITY_RANK:
+                return f"Недопустимый приоритет: {value}"
+            chat_settings.min_priority = cast(PriorityName, value)
+            self.storage.save_telegram_chat_settings(chat_settings)
+            self._render_menu(chat_id, message_id, chat_settings, "priority")
+            return f"min_priority: {value}"
+
+        if action == "weekdays":
+            preset = args[0] if args else "daily"
+            presets = {
+                "daily": list(range(7)),
+                "weekdays": [0, 1, 2, 3, 4],
+                "weekends": [5, 6],
+            }
+            if preset not in presets:
+                return f"Неизвестный набор: {preset}"
+            chat_settings.digest_weekdays = presets[preset]
+            self.storage.save_telegram_chat_settings(chat_settings)
+            self._render_menu(chat_id, message_id, chat_settings, "schedule")
+            return f"Дни: {preset}"
+
+        if action == "src":
+            sub = args[0] if args else ""
+            if sub == "all":
+                chat_settings.source_ids = []
+                self.storage.save_telegram_chat_settings(chat_settings)
+                self._render_menu(chat_id, message_id, chat_settings, "sources")
+                return "Источники: все включённые"
+            if sub == "toggle" and len(args) > 1:
+                source_id = args[1]
+                enabled_ids = [src.id for src in self._all_sources() if src.enabled]
+                current = set(chat_settings.source_ids) or set(enabled_ids)
+                if source_id in current:
+                    current.discard(source_id)
+                else:
+                    current.add(source_id)
+                chat_settings.source_ids = sorted(current & set(enabled_ids))
+                self.storage.save_telegram_chat_settings(chat_settings)
+                self._render_menu(chat_id, message_id, chat_settings, "sources")
+                return f"Источник {source_id} переключён"
+            return "Неизвестное действие источников"
+
+        return ""
+
+    def _run_callback_action(
+        self,
+        args: list[str],
+        chat_id: str,
+        chat_title: str | None,
+    ) -> None:
+        target = args[0] if args else ""
+        chat_settings = self.storage.get_or_create_telegram_chat_settings(
+            chat_id,
+            chat_title,
+        )
+        if target == "collect":
+            self._send_plain(chat_id, "Запускаю сбор...")
+            self._send_plain(chat_id, self._collect_for_chat(chat_settings))
+            return
+        if target == "process":
+            self._send_plain(chat_id, "Запускаю обработку...")
+            self._send_plain(chat_id, self._process_for_chat(chat_settings))
+            return
+        if target == "digest":
+            self._send_plain(chat_id, "Собираю сводку...")
+            self._send_plain(chat_id, self._digest_command(chat_settings, ""))
+            return
+        if target == "latest":
+            self._send_plain(chat_id, self._latest_command(chat_settings, ""))
+            return
+        self._send_plain(chat_id, f"Неизвестное действие: {target}")
+
+    def _safe_answer_callback(
+        self,
+        callback_id: str,
+        *,
+        text: str = "",
+        alert: bool = False,
+    ) -> None:
+        if not callback_id or not hasattr(self.api, "answer_callback_query"):
+            return
+        try:
+            self.api.answer_callback_query(
+                callback_id,
+                text=text,
+                show_alert=alert,
+            )
+        except Exception as exc:
+            logger.warning(
+                "telegram_answer_callback_failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
 
 
 def parse_command(text: str) -> tuple[str, str] | None:

@@ -33,6 +33,8 @@ class RecordingTelegramApi(TelegramBotApi):
 class FakeTelegramApi:
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.edited: list[dict[str, Any]] = []
+        self.answered_callbacks: list[dict[str, Any]] = []
         self.deleted_webhook = False
 
     def delete_webhook(self, *, drop_pending_updates: bool = False) -> bool:
@@ -53,6 +55,7 @@ class FakeTelegramApi:
         parse_mode: str | None = None,
         disable_web_page_preview: bool = True,
         reply_to_message_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> None:
         self.sent.append(
             {
@@ -60,6 +63,40 @@ class FakeTelegramApi:
                 "text": text,
                 "parse_mode": parse_mode,
                 "reply_to_message_id": reply_to_message_id,
+                "reply_markup": reply_markup,
+            }
+        )
+
+    def edit_message_text(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+        disable_web_page_preview: bool = True,
+    ) -> None:
+        self.edited.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
+        )
+
+    def answer_callback_query(
+        self,
+        callback_query_id: str,
+        *,
+        text: str = "",
+        show_alert: bool = False,
+    ) -> None:
+        self.answered_callbacks.append(
+            {
+                "callback_query_id": callback_query_id,
+                "text": text,
+                "show_alert": show_alert,
             }
         )
 
@@ -110,7 +147,10 @@ def test_telegram_get_updates_uses_timeout_larger_than_long_poll() -> None:
     assert api.requests == [
         (
             "getUpdates",
-            {"timeout": 30, "allowed_updates": ["message", "edited_message"]},
+            {
+                "timeout": 30,
+                "allowed_updates": ["message", "edited_message", "callback_query"],
+            },
             45,
         )
     ]
@@ -257,6 +297,70 @@ def test_telegram_default_digest_date_uses_previous_almaty_day(tmp_path) -> None
     assert bot._default_digest_date_for_chat(settings) == "2026-05-26"
 
 
+def test_telegram_menu_command_sends_inline_keyboard(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+        admin_checker=lambda chat_id, user_id: True,
+    )
+
+    bot.handle_update(_message("/crypto_menu"))
+
+    assert api.sent, "expected at least one message"
+    markup = api.sent[-1]["reply_markup"]
+    assert markup is not None
+    callback_data = [
+        button["callback_data"]
+        for row in markup["inline_keyboard"]
+        for button in row
+    ]
+    assert "cm:menu:settings" in callback_data
+    assert "cm:menu:actions" in callback_data
+
+
+def test_telegram_callback_toggle_flips_delivery(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+        admin_checker=lambda chat_id, user_id: True,
+    )
+    storage.get_or_create_telegram_chat_settings("-1001", "Crypto Desk")
+
+    bot.handle_update(_callback("cm:toggle:delivery"))
+
+    saved = storage.load_telegram_chat_settings("-1001")
+    assert saved is not None
+    assert saved.enabled is True
+    assert api.answered_callbacks[-1]["text"].startswith("Доставка:")
+    assert api.edited, "expected the menu to be redrawn after toggle"
+
+
+def test_telegram_callback_rejects_non_admin(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+        admin_checker=lambda chat_id, user_id: False,
+    )
+    storage.get_or_create_telegram_chat_settings("-1001", "Crypto Desk")
+
+    bot.handle_update(_callback("cm:toggle:delivery"))
+
+    saved = storage.load_telegram_chat_settings("-1001")
+    assert saved is not None
+    assert saved.enabled is False
+    assert api.answered_callbacks[-1]["show_alert"] is True
+    assert "администраторы" in api.answered_callbacks[-1]["text"]
+
+
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         TELEGRAM_BOT_TOKEN="token",
@@ -272,5 +376,19 @@ def _message(text: str) -> dict[str, Any]:
             "text": text,
             "chat": {"id": -1001, "type": "group", "title": "Crypto Desk"},
             "from": {"id": 42},
+        }
+    }
+
+
+def _callback(data: str) -> dict[str, Any]:
+    return {
+        "callback_query": {
+            "id": "cb-1",
+            "data": data,
+            "from": {"id": 42},
+            "message": {
+                "message_id": 11,
+                "chat": {"id": -1001, "type": "group", "title": "Crypto Desk"},
+            },
         }
     }
