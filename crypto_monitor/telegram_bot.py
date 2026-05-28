@@ -87,6 +87,10 @@ class TelegramApiError(RuntimeError):
     """Raised when Telegram Bot API returns ok=false."""
 
 
+class TelegramConflictError(TelegramApiError):
+    """Raised when another getUpdates request is active for the same bot token."""
+
+
 class TelegramBotApi:
     def __init__(self, token: str, timeout: float = 30.0) -> None:
         self.base_url = f"https://api.telegram.org/bot{token}"
@@ -99,15 +103,27 @@ class TelegramBotApi:
         *,
         request_timeout: float | None = None,
     ) -> Any:
-        response = httpx.post(
-            f"{self.base_url}/{method}",
-            json=payload,
-            timeout=request_timeout or self.timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                f"{self.base_url}/{method}",
+                json=payload,
+                timeout=request_timeout or self.timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            description = _telegram_error_description(exc.response)
+            if status_code == 409:
+                raise TelegramConflictError(description) from None
+            raise TelegramApiError(f"HTTP {status_code}: {description}") from None
+        except httpx.HTTPError as exc:
+            raise TelegramApiError(f"{type(exc).__name__}: {exc}") from None
+
         data = response.json()
         if not data.get("ok", False):
             description = data.get("description") or "Telegram API returned ok=false"
+            if data.get("error_code") == 409:
+                raise TelegramConflictError(str(description))
             raise TelegramApiError(str(description))
         return data.get("result")
 
@@ -208,6 +224,16 @@ class TelegramCommandBot:
                 offset = self.poll_once(offset=offset, timeout=poll_timeout)
             except KeyboardInterrupt:
                 raise
+            except TelegramConflictError as exc:
+                logger.warning(
+                    "telegram_polling_conflict: %s. "
+                    "Only one Railway replica/service/local bot can use this token.",
+                    exc,
+                )
+                time.sleep(max(poll_interval, 10.0))
+                continue
+            except TelegramApiError as exc:
+                logger.error("telegram_polling_api_error: %s", exc)
             except Exception:
                 logger.exception("telegram_polling_failed")
             time.sleep(poll_interval)
@@ -754,6 +780,18 @@ def parse_command(text: str) -> tuple[str, str] | None:
     first, _, rest = text.partition(" ")
     command = first[1:].split("@", 1)[0].strip().lower().replace("-", "_")
     return command, rest.strip()
+
+
+def _telegram_error_description(response: httpx.Response) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return response.reason_phrase or "Telegram API request failed"
+    if isinstance(data, dict):
+        description = data.get("description")
+        if description:
+            return str(description)
+    return response.reason_phrase or "Telegram API request failed"
 
 
 def format_chat_settings(settings: TelegramChatSettings) -> str:

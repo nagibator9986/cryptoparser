@@ -2,9 +2,12 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, cast
 
+import httpx
+
 from crypto_monitor.config import Settings
 from crypto_monitor.storage import SqliteStorage
 from crypto_monitor.telegram_bot import (
+    TelegramConflictError,
     TelegramBotApi,
     TelegramCommandBot,
     parse_command,
@@ -111,6 +114,39 @@ def test_telegram_get_updates_uses_timeout_larger_than_long_poll() -> None:
             45,
         )
     ]
+
+
+def test_telegram_api_raises_redacted_conflict_error(monkeypatch) -> None:
+    def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "ok": False,
+                "error_code": 409,
+                "description": (
+                    "Conflict: terminated by other getUpdates request; "
+                    "make sure that only one bot instance is running"
+                ),
+            },
+            request=httpx.Request(
+                "POST",
+                "https://api.telegram.org/botsecret-token/getUpdates",
+            ),
+        )
+
+    monkeypatch.setattr("crypto_monitor.telegram_bot.httpx.post", fake_post)
+    api = TelegramBotApi("secret-token")
+
+    try:
+        api.get_updates()
+    except TelegramConflictError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("TelegramConflictError was not raised")
+
+    assert "Conflict:" in message
+    assert "secret-token" not in message
+    assert "api.telegram.org" not in message
 
 
 def test_telegram_set_command_updates_group_settings(tmp_path) -> None:

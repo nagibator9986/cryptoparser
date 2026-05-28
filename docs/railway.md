@@ -101,9 +101,13 @@ railway run crypto-monitor evals --dry-run
 
 1. Проверьте, что `TELEGRAM_BOT_TOKEN` задан именно у deployed service.
 2. Проверьте логи на ошибки Telegram API: `401`, `404`, `409 Conflict`.
+   `409 Conflict` означает, что этот же bot token уже использует другой
+   `getUpdates`: второй Railway replica, второй service, старый deployment
+   во время rollout или локально запущенный бот.
 3. Код при старте автоматически выполняет `deleteWebhook`, чтобы long polling
    работал после предыдущих webhook-deployments.
-4. В группе бот должен быть добавлен, а команды настройки должен отправлять
+4. Для одного Telegram bot token оставьте один Railway replica и один service.
+5. В группе бот должен быть добавлен, а команды настройки должен отправлять
    администратор группы.
 
 Локальная проверка Docker:
