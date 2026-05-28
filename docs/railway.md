@@ -18,6 +18,9 @@ Railway deployment запускает один long-running service:
 - `.env.example` - список переменных для Railway Variables.
 - `.dockerignore` - исключает секреты, SQLite, тесты и локальный мусор из build context.
 
+В `Dockerfile` нет инструкции `VOLUME`: Railway ее не поддерживает. Volume нужно
+создать в Railway UI и смонтировать в `/data`.
+
 ## Railway Setup
 
 1. Создайте Railway project и подключите репозиторий.

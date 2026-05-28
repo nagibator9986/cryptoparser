@@ -16,7 +16,6 @@ COPY scripts ./scripts
 RUN pip install --no-cache-dir .
 
 EXPOSE 8080
-VOLUME ["/data"]
 
 ENTRYPOINT ["crypto-monitor"]
 CMD ["railway"]
