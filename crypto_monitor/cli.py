@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +15,7 @@ from crypto_monitor.delivery.emailer import EmailDelivery
 from crypto_monitor.delivery.telegram import TelegramDelivery
 from crypto_monitor.evals import SkillEvalRunner
 from crypto_monitor.gemini import DryRunLlmClient, GeminiClient
+from crypto_monitor.health import start_health_server
 from crypto_monitor.logging import configure_logging
 from crypto_monitor.models import RawArticle
 from crypto_monitor.normalization import digest_date_or_previous_day
@@ -313,6 +315,38 @@ def telegram_bot(
         return
     console.print("Telegram bot polling started. Press Ctrl+C to stop.")
     bot.run_forever(poll_timeout=poll_timeout, poll_interval=poll_interval)
+
+
+@app.command("railway")
+def railway_service(
+    poll_timeout: Annotated[int, typer.Option("--poll-timeout")] = 30,
+    poll_interval: Annotated[float, typer.Option("--poll-interval")] = 1.0,
+    health_host: Annotated[str, typer.Option("--health-host")] = "0.0.0.0",
+    health_port: Annotated[int | None, typer.Option("--health-port")] = None,
+) -> None:
+    """Run Railway service: Telegram bot plus HTTP health endpoint."""
+
+    settings = get_settings()
+    health_server = start_health_server(settings, host=health_host, port=health_port)
+    health_thread = threading.Thread(
+        target=health_server.serve_forever,
+        name="health-server",
+        daemon=True,
+    )
+    health_thread.start()
+
+    storage = SqliteStorage(settings.db_path)
+    bot = TelegramCommandBot(
+        settings=settings,
+        storage=storage,
+        pipeline_factory=build_pipeline,
+    )
+    console.print("Railway service started: Telegram polling + /health endpoint.")
+    try:
+        bot.run_forever(poll_timeout=poll_timeout, poll_interval=poll_interval)
+    finally:
+        health_server.shutdown()
+        health_server.server_close()
 
 
 @app.command("telegram-chats")

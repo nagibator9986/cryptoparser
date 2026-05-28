@@ -5,7 +5,16 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 data/
+*.sqlite
+*.sqlite3
+*.db
 dist/
 build/
 *.egg-info/
+.DS_Store
+.coverage
+htmlcov/
+https:/

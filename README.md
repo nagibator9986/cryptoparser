@@ -136,6 +136,12 @@ crypto-monitor telegram-chats
 Поддерживаемые значения дней: `daily`, `weekdays`, `weekends`, `mon,tue,wed`,
 `mon-fri`, `пн,ср,пт`, `пн-пт`, `выходные`, `будни`.
 
+## Railway deploy
+
+Проект подготовлен для Railway: `Dockerfile` запускает `crypto-monitor railway`,
+`railway.toml` настраивает `/health`, а SQLite рассчитан на volume `/data`.
+Пошаговая инструкция: [docs/railway.md](docs/railway.md).
+
 ## AI ranking
 
 Перед сборкой сводки pipeline делает отдельный Gemini ranking pass по всему
