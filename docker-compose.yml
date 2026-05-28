@@ -1,0 +1,10 @@
+services:
+  crypto-monitor:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./config:/app/config:ro
+      - ./crypto-monitor-skills:/app/crypto-monitor-skills:ro
+    command: ["status"]

@@ -1,0 +1,50 @@
+{
+  "skill_name": "crypto-news-prioritizer",
+  "evals": [
+    {
+      "id": 1,
+      "name": "kz-cbdc-geo-bump",
+      "prompt": "Prioritize this news. Input: {\"title\": \"НБРК запустил вторую фазу пилота цифрового тенге\", \"summary\": \"Национальный банк РК запустил вторую фазу пилотного проекта цифрового тенге с участием четырёх системообразующих банков.\", \"topics\": [\"cbdc\", \"regulation\"], \"country\": \"KZ\", \"geo_priority\": 1, \"source_name\": \"nationalbank.kz\", \"key_entities\": [\"Национальный банк РК\", \"цифровой тенге\"]}",
+      "expected_output": "Priority high (или critical), geo_bumped=true, score > 70",
+      "assertions": [
+        "Output is valid JSON",
+        "priority is one of: 'high', 'critical'",
+        "geo_bumped == true",
+        "score > 70"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "global-critical-stablecoin-depeg",
+      "prompt": "Prioritize this news. Input: {\"title\": \"Tether USDT депег: курс упал до $0.94\", \"summary\": \"Стейблкоин USDT временно потерял привязку к доллару, упав до $0.94.\", \"topics\": [\"stablecoins\", \"security-incidents\"], \"country\": \"INT\", \"geo_priority\": 3, \"source_name\": \"coindesk.com\", \"key_entities\": [\"Tether\", \"USDT\"]}",
+      "expected_output": "Priority critical, score > 85, geo_bumped=false",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'critical'",
+        "score > 85"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "low-priority-price-speculation",
+      "prompt": "Prioritize this news. Input: {\"title\": \"Аналитики предсказывают рост биткоина к концу года\", \"summary\": \"Аналитики ряда инвестфондов ожидают рост биткоина.\", \"topics\": [\"market-events\"], \"country\": \"INT\", \"geo_priority\": 3, \"source_name\": \"cointelegraph.com\", \"key_entities\": []}",
+      "expected_output": "Priority low, score < 40",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'low'",
+        "score < 40"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "edge-case-empty-topics",
+      "prompt": "Prioritize this news. Input: {\"title\": \"Какая-то новость\", \"summary\": \"...\", \"topics\": [], \"country\": \"KZ\", \"geo_priority\": 0, \"source_name\": \"random.kz\", \"key_entities\": []}",
+      "expected_output": "Priority low, очень низкий score — публикация не классифицирована",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'low'",
+        "score < 30"
+      ]
+    }
+  ]
+}

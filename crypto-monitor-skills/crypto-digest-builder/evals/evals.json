@@ -1,0 +1,48 @@
+{
+  "skill_name": "crypto-digest-builder",
+  "evals": [
+    {
+      "id": 1,
+      "name": "basic-digest-three-articles",
+      "prompt": "Build a digest for these articles. Input: {\"digest_date\": \"2025-03-12\", \"max_items_per_section\": 5, \"total_max_items\": 25, \"articles\": [{\"id\": \"art_001\", \"title_ru\": \"Запуск второй фазы цифрового тенге\", \"summary\": \"Национальный банк РК запустил пилот.\", \"topics\": [\"cbdc\", \"regulation\"], \"country\": \"KZ\", \"geo_priority\": 1, \"priority\": \"high\", \"score\": 78, \"source_name\": \"nationalbank.kz\", \"source_url\": \"https://nationalbank.kz/123\", \"published_at\": \"2025-03-12T08:00:00+05:00\"}, {\"id\": \"art_002\", \"title_ru\": \"SEC обвинила Bittrex\", \"summary\": \"SEC предъявила обвинения криптобирже.\", \"topics\": [\"regulation\", \"exchanges\"], \"country\": \"US\", \"geo_priority\": 3, \"priority\": \"high\", \"score\": 72, \"source_name\": \"sec.gov\", \"source_url\": \"https://sec.gov/123\", \"published_at\": \"2025-03-12T14:00:00Z\"}, {\"id\": \"art_003\", \"title_ru\": \"Halyk Bank запустил услугу хранения крипто\", \"summary\": \"Народный банк представил новый сервис.\", \"topics\": [\"banks\", \"products\"], \"country\": \"KZ\", \"geo_priority\": 1, \"priority\": \"medium\", \"score\": 58, \"source_name\": \"halykbank.kz\", \"source_url\": \"https://halykbank.kz/123\", \"published_at\": \"2025-03-12T10:00:00+05:00\"}]}",
+      "expected_output": "JSON с html, plain_text, telegram_segments. РК-новости в начале (regulation_kz, cbdc, banks); SEC-новость — в разделе биржи; правильная статистика.",
+      "assertions": [
+        "Output is valid JSON",
+        "html is a non-empty string",
+        "plain_text is a non-empty string",
+        "telegram_segments is a non-empty array",
+        "html contains '12 марта 2025' or 'март' or '12.03'",
+        "html contains 'Halyk Bank'",
+        "html contains 'Bittrex'",
+        "html contains 'nationalbank.kz'",
+        "stats.total_articles == 3",
+        "html mentions 'Регулирование' before 'Биржи'"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "empty-section-handling",
+      "prompt": "Build a digest for these articles. Input: {\"digest_date\": \"2025-03-13\", \"max_items_per_section\": 5, \"total_max_items\": 25, \"articles\": [{\"id\": \"art_010\", \"title_ru\": \"Bitcoin превысил $100k\", \"summary\": \"Биткоин достиг рекордной отметки.\", \"topics\": [\"market-events\"], \"country\": \"INT\", \"geo_priority\": 3, \"priority\": \"medium\", \"score\": 55, \"source_name\": \"coindesk.com\", \"source_url\": \"https://coindesk.com/123\", \"published_at\": \"2025-03-13T12:00:00Z\"}]}",
+      "expected_output": "JSON с шапкой, одной новостью в международном разделе; не должно быть пустых разделов 'Регулирование РК', 'СНГ' и т.д.",
+      "assertions": [
+        "Output is valid JSON",
+        "stats.total_articles == 1",
+        "telegram_segments length == 1",
+        "html does not contain a section title for regulation_kz with no items",
+        "html contains 'Bitcoin' or 'биткоин'"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "telegram-segmentation-edge",
+      "prompt": "Build a digest with 15 articles (each with ~100-word summaries) and verify telegram segments are properly split. Input: large array of 15 articles spanning all sections, each with ~100-word summary. Use realistic data with all required fields.",
+      "expected_output": "Несколько telegram-сегментов, каждый <= 4000 символов; никакой блок публикации не разорван между сегментами; промежуточные сегменты содержат маркер «продолжение далее»",
+      "assertions": [
+        "Output is valid JSON",
+        "all telegram_segments items have length <= 4000",
+        "all but the last segment contain the continuation marker 'продолжение далее' or '(продолжение)'",
+        "no article title appears twice across all segments combined"
+      ]
+    }
+  ]
+}

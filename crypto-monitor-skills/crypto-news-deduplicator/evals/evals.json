@@ -1,0 +1,39 @@
+{
+  "skill_name": "crypto-news-deduplicator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "clear-cluster-cbdc",
+      "prompt": "Cluster these articles. Input: {\"articles\": [{\"id\": \"art_001\", \"title\": \"НБРК объявил о запуске 2-й фазы пилота цифрового тенге\", \"body\": \"Национальный банк РК объявил о запуске второй фазы пилота цифрового тенге с участием Halyk, Kaspi, Forte и Jusan.\", \"source_name\": \"nationalbank.kz\", \"published_at\": \"2025-03-12T08:00:00+05:00\", \"language\": \"ru\", \"topics\": [\"cbdc\", \"regulation\"], \"country\": \"KZ\"}, {\"id\": \"art_002\", \"title\": \"В Казахстане стартовала вторая фаза цифрового тенге\", \"body\": \"Сегодня в Казахстане стартовала вторая фаза пилота цифрового тенге. По данным НБРК, в проекте участвуют четыре банка.\", \"source_name\": \"kapital.kz\", \"published_at\": \"2025-03-12T10:00:00+05:00\", \"language\": \"ru\", \"topics\": [\"cbdc\"], \"country\": \"KZ\"}, {\"id\": \"art_003\", \"title\": \"Биржа Binance отменила листинг токена X\", \"body\": \"Binance объявила о делистинге токена X.\", \"source_name\": \"binance.com\", \"published_at\": \"2025-03-12T12:00:00+00:00\", \"language\": \"en\", \"topics\": [\"exchanges\"], \"country\": \"US\"}]}",
+      "expected_output": "Один кластер с art_001 и art_002 (canonical = art_001 как официальный источник), art_003 в singletons",
+      "assertions": [
+        "Output is valid JSON",
+        "clusters array contains exactly 1 cluster",
+        "the cluster has canonical_id == 'art_001'",
+        "the cluster's member_ids includes both art_001 and art_002",
+        "singletons array contains 'art_003'"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "no-merge-different-events",
+      "prompt": "Cluster these articles. Input: {\"articles\": [{\"id\": \"art_010\", \"title\": \"SEC charges crypto exchange A with operating without license\", \"body\": \"SEC announced charges.\", \"source_name\": \"sec.gov\", \"published_at\": \"2025-03-05T14:00:00Z\", \"language\": \"en\", \"topics\": [\"regulation\", \"exchanges\"], \"country\": \"US\"}, {\"id\": \"art_011\", \"title\": \"MAS revokes license of crypto exchange B\", \"body\": \"MAS today revoked.\", \"source_name\": \"mas.gov.sg\", \"published_at\": \"2025-03-05T08:00:00+08:00\", \"language\": \"en\", \"topics\": [\"regulation\", \"licensing\"], \"country\": \"SG\"}]}",
+      "expected_output": "Нет кластеров (разные субъекты), оба в singletons",
+      "assertions": [
+        "Output is valid JSON",
+        "clusters array is empty OR contains no cluster with both art_010 and art_011",
+        "singletons contains both 'art_010' and 'art_011'"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "edge-case-announcement-vs-event",
+      "prompt": "Cluster these articles. Input: {\"articles\": [{\"id\": \"art_020\", \"title\": \"AFSA планирует выдать лицензию XYZ Crypto\", \"body\": \"AFSA рассматривает заявку XYZ Crypto на получение лицензии. Решение ожидается на следующей неделе.\", \"source_name\": \"forklog.com\", \"published_at\": \"2025-03-10T10:00:00+05:00\", \"language\": \"ru\", \"topics\": [\"licensing\"], \"country\": \"KZ\"}, {\"id\": \"art_021\", \"title\": \"AFSA выдало лицензию XYZ Crypto\", \"body\": \"Сегодня AFSA подтвердило выдачу лицензии XYZ Crypto.\", \"source_name\": \"afsa.aifc.kz\", \"published_at\": \"2025-03-17T09:00:00+05:00\", \"language\": \"ru\", \"topics\": [\"licensing\"], \"country\": \"KZ\"}]}",
+      "expected_output": "Два разных события (анонс vs факт), оба в singletons",
+      "assertions": [
+        "Output is valid JSON",
+        "singletons contains both 'art_020' and 'art_021'"
+      ]
+    }
+  ]
+}

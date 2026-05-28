@@ -1,0 +1,103 @@
+{
+  "package_name": "crypto-monitor-skills",
+  "package_version": "1.0.0",
+  "package_description": "Claude Skills для автоматизированного мониторинга индустрии цифровых активов",
+  "license": "Proprietary",
+  "skills": [
+    {
+      "name": "crypto-news-classifier",
+      "version": "1.0.0",
+      "path": "crypto-news-classifier/SKILL.md",
+      "stage": "classification",
+      "depends_on": [],
+      "produces": ["topics", "country", "geo_priority"],
+      "references": ["references/taxonomy.md", "references/geo-priorities.md"]
+    },
+    {
+      "name": "crypto-news-translator",
+      "version": "1.0.0",
+      "path": "crypto-news-translator/SKILL.md",
+      "stage": "translation",
+      "depends_on": [],
+      "produces": ["title_ru", "body_ru"],
+      "references": ["references/glossary.md", "references/organizations.md"]
+    },
+    {
+      "name": "crypto-news-deduplicator",
+      "version": "1.0.0",
+      "path": "crypto-news-deduplicator/SKILL.md",
+      "stage": "deduplication",
+      "depends_on": ["crypto-news-classifier"],
+      "produces": ["clusters", "canonical_id"],
+      "references": []
+    },
+    {
+      "name": "crypto-news-summarizer",
+      "version": "1.0.0",
+      "path": "crypto-news-summarizer/SKILL.md",
+      "stage": "summarization",
+      "depends_on": ["crypto-news-classifier"],
+      "produces": ["title_ru", "summary", "key_entities"],
+      "references": ["references/copyright-rules.md", "references/summary-template.md"]
+    },
+    {
+      "name": "crypto-news-prioritizer",
+      "version": "1.0.0",
+      "path": "crypto-news-prioritizer/SKILL.md",
+      "stage": "prioritization",
+      "depends_on": ["crypto-news-classifier", "crypto-news-summarizer"],
+      "produces": ["priority", "score"],
+      "references": []
+    },
+    {
+      "name": "crypto-digest-builder",
+      "version": "1.0.0",
+      "path": "crypto-digest-builder/SKILL.md",
+      "stage": "digest_assembly",
+      "depends_on": ["crypto-news-classifier", "crypto-news-summarizer", "crypto-news-prioritizer"],
+      "produces": ["html", "plain_text", "telegram_segments"],
+      "references": ["references/style-guide.md"],
+      "assets": ["assets/email-template.html", "assets/telegram-template.md"]
+    },
+    {
+      "name": "crypto-digest-quality-check",
+      "version": "1.0.0",
+      "path": "crypto-digest-quality-check/SKILL.md",
+      "stage": "quality_gate",
+      "depends_on": ["crypto-digest-builder"],
+      "produces": ["passed", "issues", "recommendation"],
+      "references": ["references/checklist.md"]
+    },
+    {
+      "name": "crypto-source-validator",
+      "version": "1.0.0",
+      "path": "crypto-source-validator/SKILL.md",
+      "stage": "source_management",
+      "depends_on": [],
+      "produces": ["recommended", "score", "pros", "cons"],
+      "references": []
+    }
+  ],
+  "pipeline": {
+    "name": "daily-digest",
+    "stages": [
+      { "skill": "crypto-news-translator", "optional": true, "condition": "language != 'ru'" },
+      { "skill": "crypto-news-classifier", "optional": false },
+      { "skill": "crypto-news-deduplicator", "optional": false, "batch": true },
+      { "skill": "crypto-news-summarizer", "optional": false },
+      { "skill": "crypto-news-prioritizer", "optional": false },
+      { "skill": "crypto-digest-builder", "optional": false, "batch": true, "schedule": "08:30 Asia/Almaty" },
+      { "skill": "crypto-digest-quality-check", "optional": false, "batch": true }
+    ]
+  },
+  "metadata": {
+    "target_audience": "Bank in Republic of Kazakhstan",
+    "primary_language_output": "ru",
+    "supported_input_languages": ["ru", "en", "kk"],
+    "geo_priority_levels": [
+      { "level": 1, "name": "Kazakhstan", "iso_codes": ["KZ"] },
+      { "level": 2, "name": "CIS and Central Asia", "iso_codes": ["RU", "BY", "UZ", "KG", "TJ", "TM", "AM", "AZ", "GE", "MD"] },
+      { "level": 3, "name": "Rest of world", "iso_codes": "*" }
+    ]
+  }
+}

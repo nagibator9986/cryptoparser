@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Ежедневная сводка: цифровые активы</title>
+</head>
+<body style="margin: 0; padding: 0; background: #F4F6F8; font-family: Arial, Helvetica, sans-serif;">
+
+<!-- Контейнер -->
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #F4F6F8;">
+  <tr>
+    <td align="center" style="padding: 24px 8px;">
+
+      <!-- Карточка -->
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width: 640px; background: #FFFFFF; border: 1px solid #E4E7EB; border-radius: 6px;">
+
+        <!-- Шапка -->
+        <tr>
+          <td style="background: #1F4E79; padding: 24px 32px; border-radius: 6px 6px 0 0;">
+            <div style="color: #FFFFFF; font-family: Arial, sans-serif; font-size: 12px; letter-spacing: 1px; text-transform: uppercase;">
+              Ежедневная сводка
+            </div>
+            <h1 style="color: #FFFFFF; font-family: Arial, sans-serif; font-size: 22px; margin: 6px 0 0 0; font-weight: bold;">
+              Цифровые активы и криптоиндустрия
+            </h1>
+            <div style="color: #B0C4DE; font-family: Arial, sans-serif; font-size: 13px; margin-top: 6px;">
+              {{DIGEST_DATE}} · {{TOTAL_ARTICLES}} публикаций
+            </div>
+          </td>
+        </tr>
+
+        <!-- Контент -->
+        <tr>
+          <td style="padding: 16px 32px 32px 32px;">
+
+            {{#SECTIONS}}
+            <!-- Раздел -->
+            <h2 style="font-family: Arial, sans-serif; font-size: 16px; color: #1F4E79; margin: 24px 0 8px 0; padding-bottom: 6px; border-bottom: 2px solid #E4E7EB;">
+              {{SECTION_TITLE}}
+            </h2>
+
+              {{#ITEMS}}
+              <!-- Блок публикации -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 12px 0;">
+                <tr>
+                  <td style="border-left: 4px solid {{PRIORITY_COLOR}}; padding: 12px 16px; background: #F5F9FD;">
+                    <div style="color: {{PRIORITY_COLOR}}; font-family: Arial, sans-serif; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">
+                      {{PRIORITY_MARKER}}
+                    </div>
+                    <div style="font-family: Arial, sans-serif; font-size: 15px; color: #1F4E79; font-weight: bold; margin: 4px 0 8px 0; line-height: 1.3;">
+                      {{TITLE_RU}}
+                    </div>
+                    <p style="font-family: Arial, sans-serif; font-size: 13px; color: #1F1F1F; line-height: 1.55; margin: 0 0 10px 0;">
+                      {{SUMMARY}}
+                    </p>
+                    <div style="font-family: Arial, sans-serif; font-size: 11px; color: #66686B;">
+                      Источник: {{SOURCE_NAME}}
+                      &nbsp;·&nbsp; Дата: {{DATE_SHORT}}
+                      &nbsp;·&nbsp; <a href="{{SOURCE_URL}}" style="color: #2E75B6; text-decoration: none;">Читать оригинал →</a>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              {{/ITEMS}}
+
+            {{/SECTIONS}}
+
+          </td>
+        </tr>
+
+        <!-- Подвал -->
+        <tr>
+          <td style="background: #F4F6F8; padding: 18px 32px; border-top: 1px solid #E4E7EB; border-radius: 0 0 6px 6px;">
+            <div style="font-family: Arial, sans-serif; font-size: 11px; color: #66686B; line-height: 1.5;">
+              Сводка сформирована автоматически системой мониторинга цифровых активов.
+              Возможны неточности в кратком изложении; для принятия решений обращайтесь к оригинальным источникам.<br>
+              <a href="{{ARCHIVE_URL}}" style="color: #2E75B6;">Архив</a>
+              &nbsp;·&nbsp;
+              <a href="{{UNSUBSCRIBE_URL}}" style="color: #2E75B6;">Управление подпиской</a>
+            </div>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>
+
+<!--
+ПЕРЕМЕННЫЕ ШАБЛОНА:
+{{DIGEST_DATE}}      — дата сводки в формате «12 марта 2025»
+{{TOTAL_ARTICLES}}   — суммарное число публикаций в сводке
+{{#SECTIONS}}...{{/SECTIONS}} — повтор по разделам (Mustache-подобная нотация)
+  {{SECTION_TITLE}}  — название раздела
+  {{#ITEMS}}...{{/ITEMS}} — повтор по публикациям внутри раздела
+    {{PRIORITY_COLOR}} — цвет приоритета:
+       critical → #D32F2F
+       high     → #ED6C02
+       medium   → #1976D2
+       low      → #66686B
+    {{PRIORITY_MARKER}} — текст: «🔴 critical», «🟠 high», ...
+    {{TITLE_RU}}       — русский заголовок
+    {{SUMMARY}}        — реферат
+    {{SOURCE_NAME}}    — название источника
+    {{DATE_SHORT}}     — дата в формате «12.03»
+    {{SOURCE_URL}}     — URL оригинала
+{{ARCHIVE_URL}}     — ссылка на архив сводок
+{{UNSUBSCRIBE_URL}} — ссылка на управление подпиской
+-->

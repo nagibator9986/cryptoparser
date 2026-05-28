@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sample-001",
+    "source_id": "manual",
+    "source_name": "nationalbank.kz",
+    "source_url": "https://nationalbank.kz/news/sample",
+    "title": "Национальный банк РК объявил о новом этапе развития цифрового тенге",
+    "body": "Национальный банк Республики Казахстан сообщил о запуске очередного этапа проекта цифрового тенге. В рамках этапа планируется расширить число участников пилота, проверить офлайн-платежи и протестировать интеграции с банками второго уровня.",
+    "published_at": "2026-05-24T09:00:00+05:00",
+    "language": "ru",
+    "raw": {"collector": "sample"}
+  },
+  {
+    "id": "sample-002",
+    "source_id": "manual",
+    "source_name": "sec.gov",
+    "source_url": "https://sec.gov/news/sample",
+    "title": "SEC charges crypto exchange with operating as an unregistered platform",
+    "body": "The U.S. Securities and Exchange Commission announced charges against a crypto asset trading platform for operating without the required registrations. The complaint states that the company provided exchange and broker services to investors while failing to comply with securities-market rules.",
+    "published_at": "2026-05-24T01:00:00+00:00",
+    "language": "en",
+    "raw": {"collector": "sample"}
+  }
+]

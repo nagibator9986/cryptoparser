@@ -1,0 +1,42 @@
+{
+  "skill_name": "crypto-digest-quality-check",
+  "evals": [
+    {
+      "id": 1,
+      "name": "clean-digest-passes",
+      "prompt": "QA this digest. Input: {\"digest_date\": \"2025-03-12\", \"html\": \"<html><body><h1>Сводка 12.03.2025</h1><p>Период покрытия: 2025-03-12 · 1 публикация</p><h2>Регулирование РК</h2><article><h3>Запуск второй фазы пилота цифрового тенге в Казахстане</h3><p>Национальный банк РК объявил о второй фазе пилотного проекта цифрового тенге с участием четырёх системообразующих банков. Тестирование охватит 10 000 пользователей и отдельные сценарии офлайн-операций. Регулятор подчёркивает, что этап направлен на проверку устойчивости инфраструктуры, удобства платежей и готовности участников рынка перед возможным масштабным запуском.</p><p>Источник: nationalbank.kz | <a href=\\\"https://nationalbank.kz/123\\\">Читать оригинал</a></p></article><footer>Сводка сформирована автоматически. Возможны неточности в кратком изложении; для принятия решений обращайтесь к оригиналу. Архив: https://archive.example.kz · Управление подпиской: https://archive.example.kz/unsubscribe</footer></body></html>\", \"plain_text\": \"Сводка 12.03.2025\\nПериод покрытия: 2025-03-12 · 1 публикация\\nРегулирование РК\\nЗапуск второй фазы пилота цифрового тенге в Казахстане\\nНациональный банк РК объявил о второй фазе пилотного проекта цифрового тенге с участием четырёх системообразующих банков. Тестирование охватит 10 000 пользователей и отдельные сценарии офлайн-операций. Регулятор подчёркивает, что этап направлен на проверку устойчивости инфраструктуры, удобства платежей и готовности участников рынка перед возможным масштабным запуском.\\nИсточник: https://nationalbank.kz/123\\nСводка сформирована автоматически. Возможны неточности в кратком изложении; для принятия решений обращайтесь к оригиналу.\\nАрхив: https://archive.example.kz\\nУправление подпиской: https://archive.example.kz/unsubscribe\", \"telegram_segments\": [\"*Сводка 12\\\\.03\\\\.2025* \\\\| 1 публикация\\n\\n*Регулирование РК*\\n*Запуск второй фазы пилота цифрового тенге в Казахстане*\\nНациональный банк РК объявил о второй фазе пилотного проекта цифрового тенге с участием четырёх системообразующих банков. Тестирование охватит 10 000 пользователей и отдельные сценарии офлайн-операций. Регулятор подчёркивает, что этап направлен на проверку устойчивости инфраструктуры, удобства платежей и готовности участников рынка перед возможным масштабным запуском.\\nhttps://nationalbank.kz/123\\n\\n_Сводка сформирована автоматически. Возможны неточности в кратком изложении; для принятия решений обращайтесь к оригиналу._\\nАрхив: https://archive.example.kz\\nУправление подпиской: https://archive.example.kz/unsubscribe\"], \"articles\": [{\"id\": \"a1\", \"title_ru\": \"Запуск второй фазы пилота цифрового тенге в Казахстане\", \"summary\": \"Национальный банк РК объявил о второй фазе пилотного проекта цифрового тенге с участием четырёх системообразующих банков. Тестирование охватит 10 000 пользователей и отдельные сценарии офлайн-операций. Регулятор подчёркивает, что этап направлен на проверку устойчивости инфраструктуры, удобства платежей и готовности участников рынка перед возможным масштабным запуском.\", \"source_name\": \"nationalbank.kz\", \"source_url\": \"https://nationalbank.kz/123\", \"topics\": [\"cbdc\"], \"country\": \"KZ\", \"geo_priority\": 1, \"priority\": \"high\"}], \"stats\": {\"total_articles\": 1}}",
+      "expected_output": "passed=true, severity='none' или 'minor', recommendation='send'",
+      "assertions": [
+        "Output is valid JSON",
+        "passed == true",
+        "recommendation == 'send' OR recommendation == 'send_with_caution'",
+        "issues is an empty array"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "copyright-violation-blocks",
+      "prompt": "QA this digest. Input: {\"digest_date\": \"2025-03-12\", \"html\": \"<html>...</html>\", \"plain_text\": \"...\", \"telegram_segments\": [\"...\"], \"articles\": [{\"id\": \"a1\", \"title_ru\": \"SEC charges Bittrex\", \"summary\": \"The U.S. Securities and Exchange Commission today announced charges against crypto asset trading platform Bittrex Inc and its former CEO William Shihara for operating an unregistered national securities exchange broker and clearing agency.\", \"source_url\": \"https://sec.gov/123\", \"original_body\": \"The U.S. Securities and Exchange Commission today announced charges against crypto asset trading platform Bittrex, Inc. and its former CEO William Shihara for operating an unregistered national securities exchange, broker, and clearing agency.\", \"topics\": [\"regulation\"], \"country\": \"US\", \"geo_priority\": 3, \"priority\": \"high\"}], \"stats\": {\"total_articles\": 1}}",
+      "expected_output": "passed=false, severity='blocker', issue с категорией 'copyright', recommendation='do_not_send'",
+      "assertions": [
+        "Output is valid JSON",
+        "passed == false",
+        "severity == 'blocker'",
+        "issues is a non-empty array",
+        "at least one issue has category 'copyright'",
+        "recommendation == 'do_not_send'"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "tonal-issue-warning",
+      "prompt": "QA this digest. Input: {\"digest_date\": \"2025-03-12\", \"html\": \"<html>...</html>\", \"plain_text\": \"...\", \"telegram_segments\": [\"...\"], \"articles\": [{\"id\": \"a1\", \"title_ru\": \"Шокирующее решение НБРК\", \"summary\": \"Невероятный успех! Национальный банк РК принял эпохальное решение о запуске цифрового тенге. Прорывной шаг навстречу будущему.\", \"source_url\": \"https://nationalbank.kz/123\", \"topics\": [\"cbdc\"], \"country\": \"KZ\", \"geo_priority\": 1, \"priority\": \"high\"}], \"stats\": {\"total_articles\": 1}}",
+      "expected_output": "passed может быть true или false; должен быть как минимум один issue или warning категории 'tone'",
+      "assertions": [
+        "Output is valid JSON",
+        "(issues or warnings) array has at least one entry with category 'tone'",
+        "severity is at least 'major' OR there is a tonal warning"
+      ]
+    }
+  ]
+}

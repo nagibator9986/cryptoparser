@@ -1,0 +1,56 @@
+{
+  "skill_name": "crypto-news-classifier",
+  "evals": [
+    {
+      "id": 1,
+      "name": "kz-cbdc-regulation",
+      "prompt": "Classify this news. Input: {\"title\": \"Национальный банк Казахстана объявил о запуске пилота цифрового тенге для розничных платежей\", \"body\": \"Алматы. Председатель Национального банка РК объявил о начале второй фазы пилота цифрового тенге. К пилоту присоединились четыре системообразующих банка. Целевая группа — 10 000 пользователей, тестируется офлайн-функциональность.\", \"source_name\": \"nationalbank.kz\", \"source_url\": \"https://nationalbank.kz/ru/news\", \"language\": \"ru\"}",
+      "expected_output": "JSON c topics включающим 'cbdc' и 'regulation', country='KZ', geo_priority=1, confidence > 0.85",
+      "assertions": [
+        "Output is valid JSON",
+        "topics is a non-empty array",
+        "'cbdc' in topics",
+        "country == 'KZ'",
+        "geo_priority == 1",
+        "confidence > 0.85"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "us-sec-exchange-charges",
+      "prompt": "Classify this news. Input: {\"title\": \"SEC charges crypto exchange Bittrex with operating unregistered securities platform\", \"body\": \"The U.S. Securities and Exchange Commission today announced charges against crypto asset trading platform Bittrex and former CEO William Shihara for operating an unregistered national securities exchange, broker, and clearing agency.\", \"source_name\": \"sec.gov\", \"source_url\": \"https://sec.gov/news/press-release\", \"language\": \"en\"}",
+      "expected_output": "JSON с topics включающим 'regulation' и 'exchanges', country='US', geo_priority=3",
+      "assertions": [
+        "Output is valid JSON",
+        "'regulation' in topics",
+        "'exchanges' in topics",
+        "country == 'US'",
+        "geo_priority == 3"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "non-crypto-noise-filter",
+      "prompt": "Classify this news. Input: {\"title\": \"Курс доллара к тенге снизился на 2 пункта на утренних торгах KASE\", \"body\": \"На утренних торгах Казахстанской фондовой биржи курс доллара США опустился до уровня 480 тенге. Объём торгов составил 120 млн долларов.\", \"source_name\": \"kapital.kz\", \"source_url\": \"https://kapital.kz/...\", \"language\": \"ru\"}",
+      "expected_output": "JSON с topics=[], geo_priority=0 — публикация не относится к цифровым активам",
+      "assertions": [
+        "Output is valid JSON",
+        "topics is an empty array OR geo_priority == 0",
+        "reasoning explicitly mentions that the news is not about digital assets"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "edge-case-multilanguage-short",
+      "prompt": "Classify this news. Input: {\"title\": \"AFSA grants crypto license\", \"body\": \"AFSA granted a license today.\", \"source_name\": \"twitter.com/AFSA_AIFC\", \"source_url\": \"https://x.com/AFSA_AIFC/status/123\", \"language\": \"en\"}",
+      "expected_output": "JSON с topics включающим 'licensing', country='KZ' (AFSA = MFCA = Казахстан), geo_priority=1, но низкий confidence из-за короткого текста",
+      "assertions": [
+        "Output is valid JSON",
+        "'licensing' in topics",
+        "country == 'KZ'",
+        "geo_priority == 1",
+        "confidence < 0.75"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "skill_name": "crypto-news-translator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "english-mas-regulatory",
+      "prompt": "Translate this article to Russian. Input: {\"title\": \"MAS issues new licensing framework for stablecoin issuers\", \"body\": \"The Monetary Authority of Singapore (MAS) today announced a new regulatory framework for stablecoin issuers operating in Singapore. Under the new rules, issuers must maintain 100% reserves in low-risk assets and undergo monthly audits.\", \"source_language\": \"en\"}",
+      "expected_output": "JSON с title_ru и body_ru на русском, использующим устоявшиеся термины: 'MAS', 'Денежно-кредитное управление Сингапура', 'стейблкоин', 'эмитент', 'резервы'",
+      "assertions": [
+        "Output is valid JSON",
+        "title_ru and body_ru are present and non-empty",
+        "title_ru and body_ru are in Russian (predominantly Cyrillic)",
+        "body_ru contains 'MAS' (preserved abbreviation)",
+        "body_ru contains 'стейблкоин' or 'стейблкоинов'",
+        "body_ru contains 'эмитент' or 'эмитентов'",
+        "body_ru mentions '100%'"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "english-defi-terminology",
+      "prompt": "Translate this article to Russian. Input: {\"title\": \"Aave launches GHO stablecoin on Ethereum mainnet\", \"body\": \"Aave, a leading DeFi protocol, today launched its native overcollateralized stablecoin GHO on Ethereum mainnet. GHO is pegged to the US dollar and backed by a basket of assets supplied to Aave.\", \"source_language\": \"en\"}",
+      "expected_output": "Перевод сохраняет терминологию DeFi: 'DeFi', 'стейблкоин', 'сверхобеспеченный' или эквивалент, 'привязан к доллару США'",
+      "assertions": [
+        "Output is valid JSON",
+        "body_ru contains 'Aave'",
+        "body_ru contains 'GHO'",
+        "body_ru contains 'DeFi'",
+        "body_ru contains 'Ethereum'",
+        "body_ru contains 'стейблкоин'",
+        "body_ru does not contain literal word-by-word translations like 'децентрализованные финансы протокол'"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "edge-case-mixed-language",
+      "prompt": "Translate this article to Russian. Input: {\"title\": \"AFSA выдало MiCA-like лицензию crypto-провайдеру\", \"body\": \"AFSA today granted a crypto-license under the AIFC framework to XYZ Crypto Ltd. The license is similar to MiCA standards in the European Union and allows custody and trading services.\", \"source_language\": \"en\"}",
+      "expected_output": "Перевод правильно обрабатывает уже частично русский заголовок и полностью переводит английское тело",
+      "assertions": [
+        "Output is valid JSON",
+        "title_ru and body_ru are in Russian",
+        "body_ru contains 'AFSA'",
+        "body_ru contains 'AIFC' OR 'МФЦА'",
+        "body_ru contains 'MiCA'",
+        "body_ru contains 'XYZ Crypto'",
+        "untranslated_terms is a non-empty array"
+      ]
+    }
+  ]
+}

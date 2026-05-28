@@ -1,0 +1,57 @@
+{
+  "skill_name": "crypto-source-validator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "kz-regulator-high-score",
+      "prompt": "Evaluate this source. Input: {\"candidate\": {\"url\": \"https://afsa.aifc.kz\", \"type\": \"website\", \"name\": \"AFSA\", \"language\": \"en\", \"country_hint\": \"KZ\", \"sample_titles\": [\"AFSA grants crypto license to XYZ Crypto Ltd\", \"AFSA publishes updated digital asset regulatory framework\", \"AFSA fines a crypto provider for compliance breaches\"], \"sample_content\": \"The Astana Financial Services Authority today granted a license...\", \"publication_frequency_per_week\": 2, \"rss_url\": null}}",
+      "expected_output": "recommended=true, suggested_priority=1, в pros упомянуты регулятор и Казахстан",
+      "assertions": [
+        "Output is valid JSON",
+        "recommended == true",
+        "score > 70",
+        "suggested_priority == 1",
+        "'regulation' in suggested_topics_focus OR 'licensing' in suggested_topics_focus",
+        "pros is a non-empty array"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "reject-anonymous-pump-channel",
+      "prompt": "Evaluate this source. Input: {\"candidate\": {\"url\": \"https://t.me/anon_crypto_alpha\", \"type\": \"telegram\", \"name\": \"Anon Crypto Alpha\", \"language\": \"ru\", \"country_hint\": null, \"sample_titles\": [\"🚀🚀🚀 ЭТО ВЗЛЕТИТ! Сегодня покупаем!\", \"Инсайд: завтра памп токена X на 200%\", \"Слили адрес кита, который скупает всё подряд\"], \"sample_content\": \"Ребят, инсайд! Сегодня в 19:00 памп...\", \"publication_frequency_per_week\": 50}}",
+      "expected_output": "recommended=false, score < 30",
+      "assertions": [
+        "Output is valid JSON",
+        "recommended == false",
+        "score < 30",
+        "cons is a non-empty array",
+        "cons mentions anonymity OR sensationalism OR speculation OR аноним OR спекуляц"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "reputable-crypto-media",
+      "prompt": "Evaluate this source. Input: {\"candidate\": {\"url\": \"https://coindesk.com\", \"type\": \"rss\", \"name\": \"CoinDesk\", \"language\": \"en\", \"country_hint\": \"US\", \"sample_titles\": [\"SEC delays decision on Bitcoin ETF\", \"Ethereum upgrade postponed to Q3\", \"Singapore MAS releases stablecoin rules\"], \"publication_frequency_per_week\": 80, \"rss_url\": \"https://coindesk.com/feed\"}}",
+      "expected_output": "recommended=true, score 70+, RSS отмечен в pros",
+      "assertions": [
+        "Output is valid JSON",
+        "recommended == true",
+        "score > 65",
+        "suggested_priority == 3",
+        "pros mentions RSS OR mentions high frequency",
+        "technical_notes is a non-empty string"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "edge-case-empty-sample",
+      "prompt": "Evaluate this source. Input: {\"candidate\": {\"url\": \"https://obscure-crypto-blog.com\", \"type\": \"website\", \"name\": \"Obscure Crypto Blog\", \"language\": \"en\", \"country_hint\": null, \"sample_titles\": [], \"publication_frequency_per_week\": null}}",
+      "expected_output": "Низкий confidence из-за пустого sample, рекомендуется собрать вручную",
+      "assertions": [
+        "Output is valid JSON",
+        "confidence < 0.6",
+        "cons mentions missing sample data OR insufficient information OR sample OR недостат"
+      ]
+    }
+  ]
+}

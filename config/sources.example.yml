@@ -1,0 +1,30 @@
+sources:
+  - id: nationalbank-kz
+    name: National Bank of Kazakhstan
+    url: https://nationalbank.kz/rss/news
+    type: rss
+    enabled: false
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 1
+    poll_interval_minutes: 240
+
+  - id: afsa-aifc
+    name: AFSA
+    url: https://afsa.aifc.kz/
+    type: html
+    enabled: false
+    language_hint: en
+    country_hint: KZ
+    priority_hint: 1
+    poll_interval_minutes: 240
+
+  - id: coindesk
+    name: CoinDesk
+    url: https://www.coindesk.com/arc/outboundfeeds/rss/
+    type: rss
+    enabled: false
+    language_hint: en
+    country_hint: US
+    priority_hint: 3
+    poll_interval_minutes: 30
