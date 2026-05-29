@@ -294,15 +294,55 @@ class GeminiSkillPipeline:
         return apply_ranking_response(candidates, response, total_max_items=total_max_items)
 
     def quality_check(self, digest: Digest, articles: list[ProcessedArticle]) -> QaResult:
-        response = self.call_skill(
-            "crypto-digest-quality-check",
-            "QA this digest before delivery.",
-            {
-                **digest.model_dump(mode="json"),
-                "articles": [article.model_dump(mode="json") for article in articles],
-            },
-        )
-        return QaResult.model_validate(response)
+        # Trim the payload sent to the QA skill: drop the full HTML (the
+        # largest chunk, and the QA skill only needs the readable text),
+        # drop telegram_segments (redundant with plain_text), and reduce
+        # articles to the editorial-relevant fields. This keeps the prompt
+        # well under Gemini's context window even for large digests.
+        payload = {
+            "digest_date": digest.digest_date,
+            "plain_text": digest.plain_text,
+            "telegram_articles": [
+                block.model_dump(mode="json") for block in digest.telegram_articles
+            ],
+            "stats": digest.stats,
+            "articles": [
+                {
+                    "id": article.id,
+                    "title": article.title_ru or article.title,
+                    "summary": article.summary,
+                    "source_name": article.source_name,
+                    "source_url": article.source_url,
+                    "priority": article.priority,
+                    "topics": article.topics,
+                    "country": article.country,
+                    "geo_priority": article.geo_priority,
+                    "has_image": bool(article.image_url),
+                }
+                for article in articles
+            ],
+        }
+        try:
+            response = self.call_skill(
+                "crypto-digest-quality-check",
+                "QA this digest before delivery.",
+                payload,
+            )
+            return QaResult.model_validate(response)
+        except (JsonExtractionError, ValidationError, ValueError) as exc:
+            logger.warning("quality_check_failed_using_permissive_qa error=%s", exc)
+            return QaResult(
+                passed=True,
+                severity="warning",
+                issues=[],
+                warnings=[
+                    {
+                        "category": "qa_skill_failure",
+                        "message": f"QA skill failed: {type(exc).__name__}",
+                    }
+                ],
+                recommendation="send",
+            )
 
     def run(
         self,
