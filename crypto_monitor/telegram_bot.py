@@ -194,6 +194,14 @@ class TelegramBotApi:
         )
         return bool(result)
 
+    def get_me(self) -> dict[str, Any]:
+        result = self.request("getMe", {})
+        return result if isinstance(result, dict) else {}
+
+    def get_webhook_info(self) -> dict[str, Any]:
+        result = self.request("getWebhookInfo", {})
+        return result if isinstance(result, dict) else {}
+
     def get_chat_member(self, chat_id: str, user_id: int) -> dict[str, Any]:
         result = self.request("getChatMember", {"chat_id": chat_id, "user_id": user_id})
         return result if isinstance(result, dict) else {}
@@ -292,9 +300,58 @@ class TelegramCommandBot:
         self.run_jobs_in_background = True
 
     def prepare_long_polling(self) -> None:
+        # Identify which bot the deployed token actually points to. If a
+        # token gets accidentally swapped (e.g. paste from the wrong
+        # BotFather chat) the operator will see the wrong username in
+        # this log line and know to fix it.
+        if hasattr(self.api, "get_me"):
+            try:
+                me = self.api.get_me()
+            except Exception as exc:
+                logger.warning(
+                    "telegram_get_me_failed error=%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+            else:
+                logger.info(
+                    "telegram_bot_identified username=@%s id=%s name=%s",
+                    me.get("username"),
+                    me.get("id"),
+                    me.get("first_name"),
+                )
+
+        # If a webhook is set, /getUpdates returns 409 forever — the
+        # webhook is the active consumer. Surface it explicitly so the
+        # operator does not chase a phantom "second replica".
+        if hasattr(self.api, "get_webhook_info"):
+            try:
+                info = self.api.get_webhook_info()
+            except Exception as exc:
+                logger.warning(
+                    "telegram_get_webhook_info_failed error=%s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+            else:
+                webhook_url = info.get("url") or ""
+                pending = info.get("pending_update_count", 0)
+                last_error = info.get("last_error_message")
+                logger.info(
+                    "telegram_webhook_info url=%r pending=%s last_error=%r",
+                    webhook_url,
+                    pending,
+                    last_error,
+                )
+
         if hasattr(self.api, "delete_webhook"):
             try:
-                self.api.delete_webhook(drop_pending_updates=False)
+                # Drop pending updates: when polling is failing with 409,
+                # the queue can grow and replay stale commands once the
+                # conflict resolves. Discarding them on startup avoids
+                # surprising the user with replies to messages they sent
+                # tens of minutes ago.
+                self.api.delete_webhook(drop_pending_updates=True)
             except Exception as exc:
                 logger.warning(
                     "telegram_delete_webhook_failed error=%s: %s",
