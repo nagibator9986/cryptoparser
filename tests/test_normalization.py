@@ -5,8 +5,30 @@ from crypto_monitor.normalization import (
     detect_language,
     digest_date_or_previous_day,
     is_within_schedule_window,
+    normalize_image_url,
     parse_datetime,
 )
+
+
+def test_normalize_image_url_rejects_data_uri_and_tracking_pixels() -> None:
+    assert normalize_image_url("data:image/png;base64,AAA") is None
+    assert normalize_image_url("https://tracking.doubleclick.net/pixel.gif") is None
+    assert normalize_image_url("") is None
+    assert normalize_image_url(None) is None
+
+
+def test_normalize_image_url_resolves_relative_against_base() -> None:
+    result = normalize_image_url(
+        "/img/cover.jpg", base_url="https://example.com/news/article"
+    )
+    assert result == "https://example.com/img/cover.jpg"
+
+
+def test_normalize_image_url_promotes_protocol_relative_to_https() -> None:
+    assert (
+        normalize_image_url("//cdn.example.com/cover.jpg")
+        == "https://cdn.example.com/cover.jpg"
+    )
 
 
 def test_detect_language_basic_cases() -> None:

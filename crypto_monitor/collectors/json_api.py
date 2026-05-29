@@ -8,6 +8,7 @@ import httpx
 from crypto_monitor.models import RawArticle, SourceConfig
 from crypto_monitor.normalization import (
     http_response_metadata,
+    normalize_image_url,
     normalize_raw_article,
     parse_datetime,
 )
@@ -44,6 +45,17 @@ class JsonApiCollector:
                 _first(item, ["id", "guid"])
                 or hashlib.sha256(f"{source.id}:{url}:{title}".encode()).hexdigest()[:24]
             )
+            image_candidates = [
+                _first(item, ["image", "image_url", "thumbnail", "cover_image", "photo"]),
+            ]
+            image_url = None
+            image_urls: list[str] = []
+            for candidate in image_candidates:
+                normalized = normalize_image_url(candidate)
+                if normalized and normalized not in image_urls:
+                    image_urls.append(normalized)
+                    image_url = image_url or normalized
+            author = _first(item, ["author", "creator", "byline"])
             articles.append(
                 normalize_raw_article(
                     RawArticle(
@@ -55,6 +67,9 @@ class JsonApiCollector:
                         body=str(body),
                         published_at=published_at,
                         language=source.language_hint,
+                        image_url=image_url,
+                        image_urls=image_urls,
+                        author=str(author) if author else None,
                         raw={
                             "collector": "json_api",
                             "item": item,

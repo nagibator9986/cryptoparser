@@ -57,7 +57,7 @@ def test_apply_ranking_response_updates_order_priority_and_score() -> None:
     assert [article.id for article in ranked] == ["a2", "a1"]
     assert ranked[0].priority == "critical"
     assert ranked[0].score == 96
-    assert any("Ranking:" in warning for warning in ranked[0].warnings)
+    assert ranked[0].ranking_reason == "More important for KZ bank."
 
 
 def _processed(article_id: str, source_url: str) -> ProcessedArticle:

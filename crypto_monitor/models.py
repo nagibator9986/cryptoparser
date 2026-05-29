@@ -46,6 +46,9 @@ class RawArticle(BaseModel):
     body: str
     published_at: datetime | None = None
     language: str | None = None
+    image_url: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
+    author: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -62,6 +65,18 @@ class ProcessedArticle(RawArticle):
     score: int | None = Field(default=None, ge=0, le=100)
     key_entities: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    ranking_reason: str | None = None
+
+
+class TelegramArticleBlock(BaseModel):
+    section: str
+    title: str
+    summary: str
+    source_name: str
+    source_url: str
+    published_at_text: str
+    priority: str
+    image_url: str | None = None
 
 
 class Digest(BaseModel):
@@ -69,6 +84,9 @@ class Digest(BaseModel):
     html: str
     plain_text: str
     telegram_segments: list[str]
+    telegram_articles: list[TelegramArticleBlock] = Field(default_factory=list)
+    header_text: str | None = None
+    footer_text: str | None = None
     stats: dict[str, Any] = Field(default_factory=dict)
 
 

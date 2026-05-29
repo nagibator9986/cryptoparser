@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime, time, timedelta
 from email.utils import parsedate_to_datetime
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -14,6 +15,42 @@ DEFAULT_TIMEZONE = "Asia/Almaty"
 _CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 _KAZAKH_RE = re.compile(r"[ӘәІіҢңҒғҮүҰұҚқӨөҺһ]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+_IMAGE_PATH_RE = re.compile(r"\.(jpe?g|png|gif|webp|svg|avif)(\?|$)", re.IGNORECASE)
+_TRACKING_PIXEL_HINTS = (
+    "1x1",
+    "pixel",
+    "doubleclick.net",
+    "googletagmanager.com",
+    "facebook.com/tr",
+    "google-analytics.com",
+    "/beacon",
+)
+
+
+def normalize_image_url(value: object, base_url: str | None = None) -> str | None:
+    """Validate and absolutize an image URL extracted from RSS or HTML.
+
+    Returns None for empty input, tracking pixels, data: URIs (Telegram does
+    not accept them), and protocol-relative URLs lacking a base. Resolves
+    relative paths against ``base_url`` when provided.
+    """
+
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text or text.startswith("data:"):
+        return None
+    if base_url and not text.startswith(("http://", "https://", "//")):
+        text = urljoin(base_url, text)
+    if text.startswith("//"):
+        text = "https:" + text
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    lowered = text.lower()
+    if any(hint in lowered for hint in _TRACKING_PIXEL_HINTS):
+        return None
+    return text
 
 
 def zoneinfo_or_utc(timezone_name: str | None) -> ZoneInfo:

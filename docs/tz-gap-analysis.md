@@ -28,7 +28,7 @@ Telegram-группы.
 | ФТ-1.5 Изоляция парсеров | Реализовано | Ошибка одного источника логируется и не ломает сбор остальных. |
 | ФТ-2.1 Нормализация полей | Реализовано | title/body/date/url/source/language сохраняются. |
 | ФТ-2.2 Asia/Almaty timezone | Реализовано для MVP | Даты нормализуются в `Asia/Almaty`. |
-| ФТ-2.3 Очистка текста | Частично | Есть HTML cleanup, но нет полноценного readability/Playwright. |
+| ФТ-2.3 Очистка текста | Реализовано для MVP | BeautifulSoup + JSON-LD + Open Graph; динамические страницы остаются на Playwright для прод. |
 | ФТ-2.4 Автоопределение языка | Реализовано для MVP | Добавлен эвристический ru/en/kk detector. |
 | ФТ-3.1 URL-дубли | Реализовано | Добавлен exact URL dedup с очисткой tracking-параметров. |
 | ФТ-3.2 Semantic dedup | Частично | LLM-skill кластеризует; embeddings/MinHash нет. |
@@ -42,7 +42,7 @@ Telegram-группы.
 | ФТ-7.4 Доставка 09:00 Алматы | Частично | Telegram bot отправляет в 09:00 ±5 минут; системного scheduler для email нет. |
 | ФТ-7.5 Модерация | Не реализовано | Нужен отдельный approval workflow. |
 | ФТ-7.6 Email HTML/plain | Реализовано | SMTP с HTML alternative и plain fallback. |
-| ФТ-7.7 Telegram MarkdownV2 | Частично | Сегментация есть; inline-пагинации кнопками нет. |
+| ФТ-7.7 Telegram MarkdownV2 | Реализовано | Per-article sendPhoto с MarkdownV2-caption, секционные заголовки, fallback на текст при ошибке фото. |
 | ФТ-7.8 Retry delivery | Реализовано | 3 попытки с exponential backoff. |
 | ФТ-8 Архив и поиск | Частично | Архив SQLite и CLI/Telegram search есть; FTS-индекса нет. |
 | ФТ-9 Управление | Частично | Telegram group settings есть; управление выполняется командами в группе. |
@@ -60,13 +60,18 @@ Telegram-группы.
 - Telegram delivery window: `09:00 ± 5 минут`.
 - Telegram chat schedule: time + weekdays, configured directly in the group.
 - Сортировка сводки по геоприоритету, значимости, score и хронологии.
-- Cross-article Gemini ranking перед сборкой дайджеста.
+- Cross-article Gemini ranking перед сборкой дайджеста (rubric с tier-классификацией источников и `has_image`).
 - Дата публикации в блоках HTML/plain/Telegram.
 - Exact URL dedup fallback, устойчивый к `utm_*`, `fbclid`, `gclid`.
 - Статусы источников: last success/error, consecutive failures, article count.
 - CLI `sources-status`.
 - CLI/Telegram search по архиву.
 - Дополнительные unit-тесты на normalization, storage, digest renderer, Telegram bot.
+- **feedparser** для RSS: enclosures, media:content/thumbnail, itunes:image, content:encoded `<img>`.
+- **BeautifulSoup + JSON-LD** для HTML: og:image / twitter:image / link[rel=image_src], NewsArticle structured data.
+- **Validated image flow**: `normalize_image_url` отсекает data: URIs и tracking pixels, резолвит relative paths.
+- **Per-article Telegram sendPhoto** с MarkdownV2-caption, секционные заголовки и fallback на текст при ошибке доставки фото.
+- **Inline-keyboard UI**: главное меню, настройки, расписание, источники, приоритет, действия (с RBAC).
 
 ## Production backlog
 

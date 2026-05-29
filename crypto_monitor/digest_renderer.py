@@ -4,7 +4,7 @@ from collections import OrderedDict
 from datetime import datetime
 from html import escape
 
-from crypto_monitor.models import Digest, ProcessedArticle
+from crypto_monitor.models import Digest, ProcessedArticle, TelegramArticleBlock
 from crypto_monitor.normalization import format_article_date
 
 SECTION_RULES = OrderedDict(
@@ -86,16 +86,63 @@ def render_digest_locally(
     html = _render_html(sections, digest_date)
     plain_text = _render_plain(sections, digest_date)
     telegram_segments = _segment_telegram(_render_telegram_blocks(sections, digest_date))
+    telegram_articles = _build_telegram_articles(sections)
+    header_text = _build_header_text(digest_date, sections)
+    footer_text = FOOTER_TEXT
     return Digest(
         digest_date=digest_date,
         html=html,
         plain_text=plain_text,
         telegram_segments=telegram_segments,
+        telegram_articles=telegram_articles,
+        header_text=header_text,
+        footer_text=footer_text,
         stats={
             "total_articles": sum(len(items) for items in sections.values()),
             "by_section": {name: len(items) for name, items in sections.items()},
+            "with_image": sum(
+                1 for items in sections.values() for article in items if article.image_url
+            ),
             "renderer": "local_fallback",
         },
+    )
+
+
+def _build_telegram_articles(
+    sections: OrderedDict[str, list[ProcessedArticle]],
+) -> list[TelegramArticleBlock]:
+    blocks: list[TelegramArticleBlock] = []
+    for section, articles in sections.items():
+        for article in articles:
+            blocks.append(
+                TelegramArticleBlock(
+                    section=section,
+                    title=article.title_ru or article.title,
+                    summary=article.summary or article.body[:600],
+                    source_name=article.source_name,
+                    source_url=article.source_url,
+                    published_at_text=format_article_date(article.published_at),
+                    priority=(article.priority or "medium").lower(),
+                    image_url=article.image_url,
+                )
+            )
+    return blocks
+
+
+def _build_header_text(
+    digest_date: str,
+    sections: OrderedDict[str, list[ProcessedArticle]],
+) -> str:
+    total = sum(len(items) for items in sections.values())
+    section_lines = [
+        f"• {section}: {len(items)}" for section, items in sections.items() if items
+    ]
+    body = "\n".join(section_lines) or "• публикаций нет"
+    return (
+        f"Цифровые активы: {_display_date(digest_date)}\n"
+        f"Публикаций в сводке: {total}\n"
+        "\n"
+        f"{body}"
     )
 
 

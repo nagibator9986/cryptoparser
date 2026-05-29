@@ -20,6 +20,81 @@ logger = logging.getLogger(__name__)
 PRIORITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
 RANKING_PRIORITY = {"low", "medium", "high", "critical"}
 
+RANKING_TASK = (
+    "Rank this complete candidate set for the morning digest of a "
+    "Kazakhstan-based bank. Compare articles against each other, not in "
+    "isolation. Decisions must be reproducible from the payload alone — "
+    "no external knowledge required.\n"
+    "\n"
+    "Scoring rubric (0-100):\n"
+    "  90-100 critical : new KZ law, AFSA/AIFC/НБ РК licence or revocation, "
+    "                   CBDC launch milestone, major bank crypto product, "
+    "                   sanctions, $100M+ security incident.\n"
+    "  70-89  high     : official regulator stance, CIS regulator action, "
+    "                   significant market infra change, established "
+    "                   exchange listing/licensing affecting KZ users.\n"
+    "  50-69  medium   : expert commentary with named source, mid-tier "
+    "                   product launch, regulatory clarification, notable "
+    "                   tokenisation or DeFi case.\n"
+    "  20-49  low      : minor token updates, generic market commentary, "
+    "                   stale news repackaged.\n"
+    "   0-19  drop     : price predictions, promotional content, "
+    "                   speculative rumours, near-duplicate of higher "
+    "                   ranked items.\n"
+    "\n"
+    "Hard rules:\n"
+    "  - geo_priority 1 articles get +1 step over an equivalent global "
+    "    item, but never invent KZ relevance.\n"
+    "  - prefer the original publisher over aggregators when scores tie.\n"
+    "  - ids in ranked_articles MUST be from the supplied set; never "
+    "    invent or transliterate identifiers.\n"
+    "  - put low-signal duplicates in dropped_ids with a one-line reason.\n"
+    "  - keep ranking_reason under 25 words; cite the rubric tier.\n"
+    "\n"
+    "Return JSON: {ranked_articles:[{id, priority, score, ranking_reason}],"
+    " dropped_ids:[{id, reason}]}."
+)
+
+
+_TIER1_HINTS = (
+    "afsa",
+    "aifc",
+    "nationalbank",
+    "gov.kz",
+    "ardfm",
+    "mdai",
+)
+_TIER2_HINTS = (
+    "kapital",
+    "kursiv",
+    "forbes.kz",
+    "forklog",
+    "cbr.ru",
+    "cbu.uz",
+    "nbkr",
+)
+_TIER3_HINTS = (
+    "coindesk",
+    "cointelegraph",
+    "theblock",
+    "sec.gov",
+    "mas.gov.sg",
+    "fca.org.uk",
+    "bis.org",
+    "fatf-gafi",
+)
+
+
+def _source_authority(source_id: str, source_url: str) -> str:
+    haystack = f"{source_id} {source_url}".lower()
+    if any(hint in haystack for hint in _TIER1_HINTS):
+        return "tier1_regulator"
+    if any(hint in haystack for hint in _TIER2_HINTS):
+        return "tier2_national"
+    if any(hint in haystack for hint in _TIER3_HINTS):
+        return "tier3_international"
+    return "tier4_other"
+
 
 class GeminiSkillPipeline:
     """Orchestrates the daily AI processing pipeline through Gemini-backed skills."""
@@ -167,29 +242,34 @@ class GeminiSkillPipeline:
         try:
             response = self.call_skill(
                 "crypto-news-prioritizer",
-                (
-                    "Rank this complete candidate set for a Kazakhstan bank daily digest. "
-                    "Compare articles against each other, not in isolation. Kazakhstan "
-                    "regulation, AFSA/AIFC/National Bank, licenses, CBDC, bank products, "
-                    "major security incidents, sanctions, bankruptcies, and large market "
-                    "infrastructure changes must rank highest. Suppress price predictions, "
-                    "minor token updates, promotional posts, and duplicated low-signal items. "
-                    "Return JSON with ranked_articles ordered best-to-worst: "
-                    "{ranked_articles:[{id, priority, score, ranking_reason}], dropped_ids:[str]}."
-                ),
+                RANKING_TASK,
                 {
                     "digest_date": digest_date,
                     "ranking_policy": {
-                        "geo_priority": "1 Kazakhstan > 2 CIS/Central Asia > 3 global",
-                        "audience": "bank / financial organization in Kazakhstan",
-                        "sort": "geo impact, regulatory/business risk, source authority, novelty",
-                        "default_max_items": total_max_items,
+                        "audience": (
+                            "bank / financial organization in Kazakhstan; "
+                            "compliance, treasury, retail product teams"
+                        ),
+                        "geo_priority": "1=KZ > 2=CIS+CA > 3=global",
+                        "max_output_items": total_max_items,
+                        "ranking_axes": [
+                            "geo impact (Kazakhstan first)",
+                            "regulatory/business risk for a bank",
+                            "source authority (regulator > national > crypto media)",
+                            "novelty (favour first reports over rewrites)",
+                            "factual specificity (numbers, names, dates)",
+                        ],
                     },
                     "articles": [
                         {
                             "id": article.id,
+                            "source_id": article.source_id,
                             "source_name": article.source_name,
                             "source_url": article.source_url,
+                            "source_authority": _source_authority(
+                                article.source_id, article.source_url
+                            ),
+                            "author": article.author,
                             "published_at": article.published_at.isoformat()
                             if article.published_at
                             else None,
@@ -201,6 +281,7 @@ class GeminiSkillPipeline:
                             "priority": article.priority,
                             "score": article.score,
                             "key_entities": article.key_entities,
+                            "has_image": bool(article.image_url),
                             "warnings": article.warnings,
                         }
                         for article in candidates
@@ -301,11 +382,18 @@ def apply_ranking_response(
         article.score = max(score, total_max_items - index)
         reason = item.get("ranking_reason") or item.get("reasoning")
         if reason:
-            article.warnings.append(f"Ranking: {reason}")
+            article.ranking_reason = str(reason)
         ranked.append(article)
         seen.add(article.id)
 
-    dropped_ids = {str(item) for item in response.get("dropped_ids") or []}
+    dropped_ids: set[str] = set()
+    for item in response.get("dropped_ids") or []:
+        if isinstance(item, dict):
+            article_id = item.get("id")
+            if article_id:
+                dropped_ids.add(str(article_id))
+        elif item:
+            dropped_ids.add(str(item))
     for article in sorted(articles, key=article_sort_key):
         if article.id in seen or article.id in dropped_ids:
             continue

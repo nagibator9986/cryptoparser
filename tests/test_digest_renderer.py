@@ -33,6 +33,28 @@ def test_local_digest_orders_kazakhstan_before_international_and_includes_date()
     assert digest.telegram_segments
 
 
+def test_local_digest_builds_structured_telegram_articles_with_image() -> None:
+    article = _article(
+        "kz",
+        title="AFSA выдало лицензию криптопровайдеру",
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=80,
+        image_url="https://afsa.aifc.kz/image.jpg",
+    )
+
+    digest = render_digest_locally([article], digest_date="2026-05-26")
+
+    assert digest.telegram_articles, "structured articles must be populated"
+    block = digest.telegram_articles[0]
+    assert block.title == "AFSA выдало лицензию криптопровайдеру"
+    assert block.image_url == "https://afsa.aifc.kz/image.jpg"
+    assert block.section.startswith("Регулирование")
+    assert digest.header_text and "Цифровые активы" in digest.header_text
+    assert digest.stats.get("with_image") == 1
+
+
 def _article(
     article_id: str,
     *,
@@ -41,6 +63,7 @@ def _article(
     geo_priority: int,
     priority: str,
     score: int,
+    image_url: str | None = None,
 ) -> ProcessedArticle:
     return ProcessedArticle(
         id=article_id,
@@ -58,4 +81,5 @@ def _article(
         geo_priority=geo_priority,
         priority=cast(Priority, priority),
         score=score,
+        image_url=image_url,
     )
