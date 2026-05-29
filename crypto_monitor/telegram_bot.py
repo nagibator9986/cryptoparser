@@ -746,8 +746,24 @@ class TelegramCommandBot:
         chat_settings: TelegramChatSettings,
         digest_date: str | None,
     ) -> tuple[Digest, QaResult]:
+        requested_explicitly = digest_date is not None
         effective_date = digest_date or self._default_digest_date_for_chat(chat_settings)
         articles = self._load_processed_for_chat(chat_settings, effective_date)
+        if not articles and not requested_explicitly:
+            # Fresh groups typically run /crypto_collect+process the same day
+            # they ask for a digest, so the default "previous day" window is
+            # often empty. Fall back to today's local date before giving up.
+            today_iso = (
+                self.now_provider()
+                .astimezone(zoneinfo_or_utc(chat_settings.timezone))
+                .date()
+                .isoformat()
+            )
+            if today_iso != effective_date:
+                today_articles = self._load_processed_for_chat(chat_settings, today_iso)
+                if today_articles:
+                    effective_date = today_iso
+                    articles = today_articles
         if not articles:
             digest = render_digest_locally(
                 [],
