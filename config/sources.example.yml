@@ -3,7 +3,7 @@ sources:
     name: National Bank of Kazakhstan
     url: https://nationalbank.kz/rss/news
     type: rss
-    enabled: false
+    enabled: true
     language_hint: ru
     country_hint: KZ
     priority_hint: 1
@@ -13,17 +13,37 @@ sources:
     name: AFSA
     url: https://afsa.aifc.kz/
     type: html
-    enabled: false
+    enabled: true
     language_hint: en
     country_hint: KZ
     priority_hint: 1
     poll_interval_minutes: 240
 
+  - id: forklog
+    name: ForkLog
+    url: https://forklog.com/feed/
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: RU
+    priority_hint: 2
+    poll_interval_minutes: 30
+
   - id: coindesk
     name: CoinDesk
     url: https://www.coindesk.com/arc/outboundfeeds/rss/
     type: rss
-    enabled: false
+    enabled: true
+    language_hint: en
+    country_hint: US
+    priority_hint: 3
+    poll_interval_minutes: 30
+
+  - id: cointelegraph
+    name: Cointelegraph
+    url: https://cointelegraph.com/rss
+    type: rss
+    enabled: true
     language_hint: en
     country_hint: US
     priority_hint: 3
