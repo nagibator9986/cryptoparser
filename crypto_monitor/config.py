@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     env: str = Field(default="local", alias="CRYPTO_MONITOR_ENV")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    gemini_timeout_seconds: float = Field(default=60.0, alias="GEMINI_TIMEOUT_SECONDS")
+    gemini_max_retries: int = Field(default=3, alias="GEMINI_MAX_RETRIES")
+    process_concurrency: int = Field(default=5, alias="CRYPTO_MONITOR_PROCESS_CONCURRENCY")
+    collect_concurrency: int = Field(default=8, alias="CRYPTO_MONITOR_COLLECT_CONCURRENCY")
     db_path: Path = Field(
         default=Path("./data/crypto_monitor.sqlite3"),
         alias="CRYPTO_MONITOR_DB_PATH",

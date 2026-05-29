@@ -24,6 +24,8 @@ class GeminiClient:
         model: str,
         temperature: float = 0.1,
         max_output_tokens: int = 4096,
+        timeout_seconds: float = 60.0,
+        max_retries: int = 3,
     ) -> None:
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required for GeminiClient")
@@ -37,45 +39,35 @@ class GeminiClient:
             ) from exc
 
         self._types = types
-        self._client = genai.Client(api_key=api_key)
+        # http_options.timeout is milliseconds in the Gen AI SDK. Without it a
+        # stalled request hangs the whole pipeline indefinitely.
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=int(timeout_seconds * 1000)),
+        )
         self.model = model
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
+        self.max_retries = max(1, int(max_retries))
 
     def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         prompt = user_prompt
         last_text = ""
         last_error: JsonExtractionError | None = None
+        config = self._types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            response_mime_type="application/json",
+            temperature=self.temperature,
+            max_output_tokens=self.max_output_tokens,
+            # Skill calls are structured extraction, not multi-step
+            # reasoning. The default thinking budget on gemini-2.5-flash
+            # eats 600-3800 tokens per call (visible as
+            # thoughts_token_count in logs) and slows wall time roughly
+            # 30%. Pin to 0 to keep latency predictable.
+            thinking_config=self._types.ThinkingConfig(thinking_budget=0),
+        )
         for attempt in range(1, 3):
-            start = time.perf_counter()
-            config = self._types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                temperature=self.temperature,
-                max_output_tokens=self.max_output_tokens,
-                # Skill calls are structured extraction, not multi-step
-                # reasoning. The default thinking budget on gemini-2.5-flash
-                # eats 600-3800 tokens per call (visible as
-                # thoughts_token_count in logs) and slows wall time roughly
-                # 30%. Pin to 0 to keep latency predictable.
-                thinking_config=self._types.ThinkingConfig(thinking_budget=0),
-            )
-            response = self._client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=config,
-            )
-            duration = time.perf_counter() - start
-            text = getattr(response, "text", "") or ""
-            usage = getattr(response, "usage_metadata", None)
-            logger.info(
-                "gemini_call model=%s attempt=%s duration_s=%.3f usage=%s chars=%s",
-                self.model,
-                attempt,
-                duration,
-                usage,
-                len(text),
-            )
+            text = self._generate_text(prompt, config, json_repair_attempt=attempt)
             try:
                 return extract_json_object(text)
             except JsonExtractionError as exc:
@@ -89,6 +81,46 @@ class GeminiClient:
                     f"Previous response:\n{last_text[:4000]}"
                 )
 
+        assert last_error is not None
+        raise last_error
+
+    def _generate_text(self, prompt: str, config: Any, *, json_repair_attempt: int) -> str:
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            start = time.perf_counter()
+            try:
+                response = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                last_error = exc
+                if not _is_transient_error(exc) or attempt == self.max_retries:
+                    raise
+                delay = min(2.0 * (2 ** (attempt - 1)), 30.0)
+                logger.warning(
+                    "gemini_call_retry attempt=%s error=%s sleeping_s=%.1f",
+                    attempt,
+                    f"{type(exc).__name__}: {exc}",
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            duration = time.perf_counter() - start
+            text = getattr(response, "text", "") or ""
+            usage = getattr(response, "usage_metadata", None)
+            logger.info(
+                "gemini_call model=%s repair_attempt=%s transient_attempt=%s "
+                "duration_s=%.3f usage=%s chars=%s",
+                self.model,
+                json_repair_attempt,
+                attempt,
+                duration,
+                usage,
+                len(text),
+            )
+            return text
         assert last_error is not None
         raise last_error
 
@@ -397,6 +429,30 @@ class DryRunLlmClient:
             if normalized.startswith("name: "):
                 return normalized.removeprefix("name: ").strip()
         return None
+
+
+_TRANSIENT_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Decide whether a Gemini SDK error is worth retrying.
+
+    Covers rate limits (429), transient server errors (5xx), and network
+    timeouts. Client errors like 400/401/403 are not retried — they will
+    fail again identically and only waste the budget.
+    """
+
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if isinstance(code, int) and code in _TRANSIENT_STATUS_CODES:
+        return True
+    name = type(exc).__name__.lower()
+    if any(token in name for token in ("timeout", "servererror", "unavailable", "connect")):
+        return True
+    message = str(exc).lower()
+    return any(
+        token in message
+        for token in ("rate limit", "resource_exhausted", "timeout", "temporarily", "503", "429")
+    )
 
 
 def _window_around_id(text: str, article_id: str, radius: int = 900) -> str:

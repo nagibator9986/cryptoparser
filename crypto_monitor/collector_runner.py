@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from crypto_monitor.collectors.html import HtmlCollector
 from crypto_monitor.collectors.json_api import JsonApiCollector
-from crypto_monitor.collectors.rss import RssCollector
+from crypto_monitor.collectors.rss import RssCollector, build_http_client
 from crypto_monitor.models import RawArticle, SourceConfig, SourceType
 
 logger = logging.getLogger(__name__)
@@ -21,20 +22,34 @@ class SourceStatusRecorder(Protocol):
 
 class CollectorRunner:
     def __init__(self) -> None:
-        self.rss = RssCollector()
-        self.html = HtmlCollector()
-        self.json_api = JsonApiCollector()
+        self._client = build_http_client()
+        self.rss = RssCollector(client=self._client)
+        self.html = HtmlCollector(client=self._client)
+        self.json_api = JsonApiCollector(client=self._client)
 
     def collect_all(
         self,
         sources: list[SourceConfig],
         limit_per_source: int = 20,
         status_recorder: SourceStatusRecorder | None = None,
+        concurrency: int = 8,
     ) -> list[RawArticle]:
+        if not sources:
+            return []
+        # Sources are independent network fetches, so they run in parallel.
+        # Results are gathered in source order and status is recorded on the
+        # calling thread to keep SQLite writes single-threaded.
+        max_workers = max(1, min(concurrency, len(sources)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self.collect, source, limit_per_source) for source in sources
+            ]
+            results = list(zip(sources, futures, strict=True))
+
         articles: list[RawArticle] = []
-        for source in sources:
+        for source, future in results:
             try:
-                source_articles = self.collect(source, limit_per_source)
+                source_articles = future.result()
                 articles.extend(source_articles)
                 if status_recorder:
                     status_recorder.record_source_success(source, len(source_articles))

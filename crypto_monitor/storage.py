@@ -25,8 +25,15 @@ class SqliteStorage:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=30.0)
         connection.row_factory = sqlite3.Row
+        # WAL lets the polling bot read while the pipeline writes without
+        # blocking each other; busy_timeout makes the rare writer-writer
+        # contention wait instead of raising "database is locked".
+        connection.execute("pragma journal_mode=WAL")
+        connection.execute("pragma synchronous=NORMAL")
+        connection.execute("pragma busy_timeout=30000")
+        connection.execute("pragma foreign_keys=ON")
         return connection
 
     def _init_schema(self) -> None:
@@ -87,6 +94,17 @@ class SqliteStorage:
                     last_article_count integer not null default 0,
                     updated_at text not null default current_timestamp
                 );
+
+                create index if not exists idx_raw_articles_source
+                    on raw_articles (source_id);
+                create index if not exists idx_raw_articles_published
+                    on raw_articles (published_at desc);
+                create index if not exists idx_processed_articles_updated
+                    on processed_articles (updated_at desc);
+                create index if not exists idx_digests_created
+                    on digests (created_at desc);
+                create index if not exists idx_audit_events_created
+                    on audit_events (id desc);
                 """
             )
 

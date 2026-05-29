@@ -276,6 +276,7 @@ class TelegramCommandBot:
         self.storage = storage
         self.api = api
         self.collector_runner = collector_runner or CollectorRunner()
+        self._skill_loader = SkillLoader(settings.skills_root)
         self.pipeline_factory = pipeline_factory or self._default_pipeline_factory
         self.admin_checker = admin_checker
         self.now_provider = now_provider or (lambda: datetime.now(UTC))
@@ -284,6 +285,9 @@ class TelegramCommandBot:
         # calls would burn the Gemini budget and confuse the user.
         self._jobs_lock = threading.Lock()
         self._active_jobs: dict[str, str] = {}
+        # Guards the scheduled digest batch so a slow run doesn't get
+        # re-spawned on every poll tick while it is still in flight.
+        self._scheduled_running = False
         # Tests inject a synchronous executor by setting this to False.
         self.run_jobs_in_background = True
 
@@ -391,6 +395,40 @@ class TelegramCommandBot:
             self._send_plain(chat_id, response, reply_to_message_id=reply_to_message_id)
 
     def run_scheduled_jobs(self) -> int:
+        """Run due scheduled digests.
+
+        The digest build runs the full Gemini pipeline, which can take minutes.
+        On the polling thread that would freeze the bot, so by default the
+        batch is handed to a background thread (guarded so a slow run is not
+        re-spawned every poll tick). Tests pin the synchronous path with
+        ``run_jobs_in_background = False`` and rely on the returned count.
+        """
+
+        if not self.run_jobs_in_background:
+            return self._run_scheduled_jobs_blocking()
+
+        with self._jobs_lock:
+            if self._scheduled_running:
+                return 0
+            self._scheduled_running = True
+
+        def worker() -> None:
+            try:
+                self._run_scheduled_jobs_blocking()
+            except Exception:
+                logger.exception("scheduled_jobs_batch_failed")
+            finally:
+                with self._jobs_lock:
+                    self._scheduled_running = False
+
+        threading.Thread(
+            target=worker,
+            name="crypto-scheduled-jobs",
+            daemon=True,
+        ).start()
+        return 0
+
+    def _run_scheduled_jobs_blocking(self) -> int:
         now = self.now_provider()
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
@@ -682,6 +720,7 @@ class TelegramCommandBot:
             sources,
             limit_per_source=limit,
             status_recorder=self.storage,
+            concurrency=self.settings.collect_concurrency,
         )
         saved = self.storage.save_raw_articles(articles)
         self.storage.log_event(
@@ -980,11 +1019,14 @@ class TelegramCommandBot:
             else GeminiClient(
                 api_key=self.settings.gemini_api_key,
                 model=self.settings.gemini_model,
+                timeout_seconds=self.settings.gemini_timeout_seconds,
+                max_retries=self.settings.gemini_max_retries,
             )
         )
         return GeminiSkillPipeline(
             llm=llm,
-            skill_loader=SkillLoader(self.settings.skills_root),
+            skill_loader=self._skill_loader,
+            process_concurrency=self.settings.process_concurrency,
         )
 
     # ── Inline-menu UI ──

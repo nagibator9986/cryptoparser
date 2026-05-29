@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from crypto_monitor.collectors.rss import build_http_client
 from crypto_monitor.models import RawArticle, SourceConfig
 from crypto_monitor.normalization import (
     http_response_metadata,
@@ -22,11 +23,12 @@ class JsonApiCollector:
     - a dict with one of: items, articles, news, results, data.
     """
 
-    def __init__(self, timeout: float = 20.0) -> None:
+    def __init__(self, timeout: float = 20.0, client: httpx.Client | None = None) -> None:
         self.timeout = timeout
+        self._client = client or build_http_client(timeout)
 
     def collect(self, source: SourceConfig, limit: int = 20) -> list[RawArticle]:
-        response = httpx.get(str(source.url), timeout=self.timeout, follow_redirects=True)
+        response = self._client.get(str(source.url))
         response.raise_for_status()
         response_meta = http_response_metadata(response)
         payload = response.json()

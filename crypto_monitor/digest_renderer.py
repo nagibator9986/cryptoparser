@@ -222,8 +222,8 @@ def _render_telegram_blocks(
             published = _escape_md(format_article_date(article.published_at))
             marker = PRIORITY_MARKERS.get(article.priority or "medium", "MEDIUM")
             blocks.append(
-                f"*{marker}*\\n*{title}*\\n\\n{summary}\\n\\n"
-                f"{source} \\| {published} \\| [оригинал]({article.source_url})\\n"
+                f"*{marker}*\n*{title}*\n\n{summary}\n\n"
+                f"{source} \\| {published} \\| [оригинал]({article.source_url})\n"
             )
     blocks.append(f"\n_{_escape_md(FOOTER_TEXT)}_")
     return blocks

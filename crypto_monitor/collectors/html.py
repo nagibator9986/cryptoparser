@@ -9,7 +9,7 @@ import httpx
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from crypto_monitor.collectors.rss import USER_AGENT
+from crypto_monitor.collectors.rss import build_http_client
 from crypto_monitor.models import RawArticle, SourceConfig
 from crypto_monitor.normalization import (
     http_response_metadata,
@@ -39,18 +39,14 @@ class HtmlCollector:
     paragraphs only when meta tags are absent.
     """
 
-    def __init__(self, timeout: float = 20.0) -> None:
+    def __init__(self, timeout: float = 20.0, client: httpx.Client | None = None) -> None:
         self.timeout = timeout
+        self._client = client or build_http_client(timeout)
 
     def collect(self, source: SourceConfig, limit: int = 20) -> list[RawArticle]:
-        response = httpx.get(
+        response = self._client.get(
             str(source.url),
-            timeout=self.timeout,
-            follow_redirects=True,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,*/*",
-            },
+            headers={"Accept": "text/html,application/xhtml+xml,*/*"},
         )
         response.raise_for_status()
         response_meta = http_response_metadata(response)

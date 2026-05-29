@@ -13,8 +13,14 @@ def retry_call(
     attempts: int = 3,
     base_delay_seconds: float = 1.0,
     retry_exceptions: tuple[type[Exception], ...] = (Exception,),
+    delay_for_exception: Callable[[Exception], float | None] | None = None,
 ) -> T:
-    """Run a callable with simple exponential backoff."""
+    """Run a callable with simple exponential backoff.
+
+    ``delay_for_exception`` may inspect the raised exception and return an
+    explicit delay (e.g. an HTTP ``Retry-After``) that overrides the default
+    exponential backoff for that attempt.
+    """
 
     if attempts < 1:
         raise ValueError("attempts must be >= 1")
@@ -27,7 +33,12 @@ def retry_call(
             last_error = exc
             if attempt == attempts:
                 break
-            time.sleep(base_delay_seconds * (2 ** (attempt - 1)))
+            delay = base_delay_seconds * (2 ** (attempt - 1))
+            if delay_for_exception is not None:
+                override = delay_for_exception(exc)
+                if override is not None:
+                    delay = override
+            time.sleep(delay)
 
     assert last_error is not None
     raise last_error

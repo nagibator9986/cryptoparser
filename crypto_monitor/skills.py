@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,12 +22,33 @@ class SkillLoader:
 
     def __init__(self, skills_root: Path) -> None:
         self.skills_root = skills_root
+        # Skill files are static for the lifetime of a process. The pipeline
+        # loads the same handful of skills once per article, so caching the
+        # assembled system prompt removes thousands of disk reads and string
+        # joins per run.
+        self._cache: dict[tuple[str, bool, bool], Skill] = {}
+        self._cache_lock = threading.Lock()
 
     def load(
         self,
         skill_name: str,
         include_references: bool = True,
         include_assets: bool = False,
+    ) -> Skill:
+        cache_key = (skill_name, include_references, include_assets)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+        skill = self._load_uncached(skill_name, include_references, include_assets)
+        with self._cache_lock:
+            self._cache[cache_key] = skill
+        return skill
+
+    def _load_uncached(
+        self,
+        skill_name: str,
+        include_references: bool,
+        include_assets: bool,
     ) -> Skill:
         skill_dir = self.skills_root / skill_name
         skill_file = skill_dir / "SKILL.md"

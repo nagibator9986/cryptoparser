@@ -34,9 +34,18 @@ def build_pipeline(dry_run: bool = False) -> GeminiSkillPipeline:
     llm = (
         DryRunLlmClient()
         if dry_run
-        else GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model)
+        else GeminiClient(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+        )
     )
-    return GeminiSkillPipeline(llm=llm, skill_loader=SkillLoader(settings.skills_root))
+    return GeminiSkillPipeline(
+        llm=llm,
+        skill_loader=SkillLoader(settings.skills_root),
+        process_concurrency=settings.process_concurrency,
+    )
 
 
 @app.callback()
@@ -72,6 +81,7 @@ def collect(
         sources,
         limit_per_source=limit_per_source,
         status_recorder=storage,
+        concurrency=settings.collect_concurrency,
     )
     saved = storage.save_raw_articles(articles)
     storage.log_event("collect", {"collected": len(articles), "saved": saved})
@@ -173,7 +183,11 @@ def run(
         storage.save_raw_articles(raw_articles)
     else:
         sources = load_sources(settings.sources_file)
-        raw_articles = CollectorRunner().collect_all(sources, status_recorder=storage)
+        raw_articles = CollectorRunner().collect_all(
+            sources,
+            status_recorder=storage,
+            concurrency=settings.collect_concurrency,
+        )
         storage.save_raw_articles(raw_articles)
 
     pipeline = build_pipeline(dry_run=dry_run)
@@ -373,7 +387,12 @@ def run_evals(
     llm = (
         DryRunLlmClient()
         if dry_run
-        else GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model)
+        else GeminiClient(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+        )
     )
     runner = SkillEvalRunner(settings.skills_root, llm)
     suites = [runner.run_skill(skill_name)] if skill_name else runner.run_all()

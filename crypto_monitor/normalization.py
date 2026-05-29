@@ -181,16 +181,14 @@ def format_article_date(
     return normalized.strftime("%d.%m.%Y %H:%M") if normalized else "дата не указана"
 
 
-def http_response_metadata(
-    response: httpx.Response,
-    max_text_chars: int = 20_000,
-) -> dict[str, object]:
-    text = response.text
+def http_response_metadata(response: httpx.Response) -> dict[str, object]:
+    # Audit metadata is duplicated into every article's stored payload, so it
+    # must stay small. Storing the full response body here previously bloated
+    # the SQLite payload by the size of the whole feed/page per article.
     return {
         "status_code": response.status_code,
         "final_url": str(response.url),
         "content_type": response.headers.get("content-type"),
         "content_length": response.headers.get("content-length"),
-        "response_size_chars": len(text),
-        "response_excerpt": text[:max_text_chars],
+        "response_size_bytes": len(response.content),
     }

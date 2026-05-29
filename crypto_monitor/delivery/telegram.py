@@ -23,8 +23,12 @@ MESSAGE_LIMIT = 4096
 
 
 class TelegramDelivery:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
+        self._client = client or httpx.Client(
+            timeout=30.0,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
 
     def configured(self, chat_id: str | None = None) -> bool:
         target_chat_id = chat_id or self.settings.telegram_chat_id
@@ -162,6 +166,7 @@ class TelegramDelivery:
                     attempts=3,
                     base_delay_seconds=2.0,
                     retry_exceptions=(httpx.HTTPError,),
+                    delay_for_exception=telegram_retry_after,
                 )
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != 400:
@@ -177,6 +182,7 @@ class TelegramDelivery:
                     attempts=3,
                     base_delay_seconds=2.0,
                     retry_exceptions=(httpx.HTTPError,),
+                    delay_for_exception=telegram_retry_after,
                 )
 
     def _send_text(
@@ -197,7 +203,7 @@ class TelegramDelivery:
             }
             if parse_mode:
                 payload["parse_mode"] = parse_mode
-            response = httpx.post(url, json=payload, timeout=30)
+            response = self._client.post(url, json=payload)
             response.raise_for_status()
 
         retry_call(
@@ -205,6 +211,7 @@ class TelegramDelivery:
             attempts=3,
             base_delay_seconds=2.0,
             retry_exceptions=(httpx.HTTPError,),
+            delay_for_exception=telegram_retry_after,
         )
 
     def _send_photo(
@@ -225,7 +232,7 @@ class TelegramDelivery:
             }
             if parse_mode:
                 payload["parse_mode"] = parse_mode
-            response = httpx.post(url, json=payload, timeout=30)
+            response = self._client.post(url, json=payload)
             response.raise_for_status()
 
         retry_call(
@@ -233,7 +240,38 @@ class TelegramDelivery:
             attempts=3,
             base_delay_seconds=2.0,
             retry_exceptions=(httpx.HTTPError,),
+            delay_for_exception=telegram_retry_after,
         )
+
+
+def telegram_retry_after(exc: Exception) -> float | None:
+    """Extract a Telegram 429 ``retry_after`` delay from an HTTP error.
+
+    Telegram returns the wait time in the JSON body
+    (``parameters.retry_after``) and/or the ``Retry-After`` header. Honour it
+    so we back off exactly as long as the API asks instead of guessing.
+    """
+
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    response = exc.response
+    if response.status_code != 429:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        retry_after = body.get("parameters", {}).get("retry_after")
+        if isinstance(retry_after, (int, float)) and retry_after > 0:
+            return float(retry_after)
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return float(header)
+        except ValueError:
+            return None
+    return None
 
 
 def escape_md(value: str) -> str:

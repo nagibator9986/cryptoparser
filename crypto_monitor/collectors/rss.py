@@ -26,6 +26,19 @@ USER_AGENT = (
     "+https://github.com/nagibator9986/cryptoparser)"
 )
 
+_HTTP_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+
+
+def build_http_client(timeout: float = 20.0) -> httpx.Client:
+    """Build a connection-pooling httpx client shared across collectors."""
+
+    return httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        headers={"User-Agent": USER_AGENT},
+        limits=_HTTP_LIMITS,
+    )
+
 
 class RssCollector:
     """RSS/Atom collector backed by feedparser.
@@ -36,15 +49,14 @@ class RssCollector:
     redirects, and audit metadata stay consistent with the other collectors.
     """
 
-    def __init__(self, timeout: float = 20.0) -> None:
+    def __init__(self, timeout: float = 20.0, client: httpx.Client | None = None) -> None:
         self.timeout = timeout
+        self._client = client or build_http_client(timeout)
 
     def collect(self, source: SourceConfig, limit: int = 20) -> list[RawArticle]:
-        response = httpx.get(
+        response = self._client.get(
             str(source.url),
-            timeout=self.timeout,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, */*"},
+            headers={"Accept": "application/rss+xml, */*"},
         )
         response.raise_for_status()
         response_meta = http_response_metadata(response)
