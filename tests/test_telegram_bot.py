@@ -5,14 +5,72 @@ from typing import Any, cast
 import httpx
 
 from crypto_monitor.config import Settings
+from crypto_monitor.models import QaResult
 from crypto_monitor.storage import SqliteStorage
 from crypto_monitor.telegram_bot import (
     TelegramBotApi,
     TelegramCommandBot,
     TelegramConflictError,
+    _format_qa_issues,
+    _is_hard_qa_block,
+    _parse_digest_args,
+    _qa_advisory_note,
     parse_command,
     parse_weekdays,
 )
+
+
+def test_is_hard_qa_block_only_on_blocker_severity() -> None:
+    blocker = QaResult(
+        passed=False, severity="blocker", recommendation="do_not_send"
+    )
+    major = QaResult(
+        passed=False, severity="major", recommendation="do_not_send"
+    )
+    sent = QaResult(passed=True, severity="none", recommendation="send")
+    assert _is_hard_qa_block(blocker) is True
+    assert _is_hard_qa_block(major) is False
+    assert _is_hard_qa_block(sent) is False
+
+
+def test_parse_digest_args_handles_date_and_force_in_any_order() -> None:
+    assert _parse_digest_args("") == (None, False)
+    assert _parse_digest_args("force") == (None, True)
+    assert _parse_digest_args("2026-05-29") == ("2026-05-29", False)
+    assert _parse_digest_args("2026-05-29 force") == ("2026-05-29", True)
+    assert _parse_digest_args("force 2026-05-29") == ("2026-05-29", True)
+    assert _parse_digest_args("принудительно") == (None, True)
+
+
+def test_qa_advisory_note_silent_on_clean_send() -> None:
+    clean = QaResult(passed=True, severity="none", recommendation="send")
+    assert _qa_advisory_note(clean) == ""
+
+
+def test_qa_advisory_note_summarises_warnings_with_issues() -> None:
+    qa = QaResult(
+        passed=False,
+        severity="major",
+        recommendation="do_not_send",
+        issues=[{"category": "tone", "description": "Sensational adjectives detected"}],
+    )
+    note = _qa_advisory_note(qa)
+    assert "severity=major" in note
+    assert "tone" in note
+    assert "Sensational adjectives" in note
+
+
+def test_format_qa_issues_truncates_long_descriptions() -> None:
+    qa = QaResult(
+        passed=False,
+        severity="major",
+        recommendation="send_with_caution",
+        issues=[{"category": "copyright", "description": "x" * 500}],
+    )
+    block = _format_qa_issues(qa)
+    assert block.startswith("Замечания QA:")
+    assert "copyright" in block
+    assert len(block.splitlines()[1]) <= 240
 
 
 class RecordingTelegramApi(TelegramBotApi):

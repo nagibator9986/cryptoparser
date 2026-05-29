@@ -118,7 +118,8 @@ HELP_TEXT = (
     "── Пайплайн вручную ──\n"
     "/crypto_collect — собрать raw-статьи из выбранных источников\n"
     "/crypto_process — пропустить raw через Gemini skills\n"
-    "/crypto_digest [YYYY-MM-DD] — собрать и отправить сводку\n"
+    "/crypto_digest [YYYY-MM-DD] [force] — собрать и отправить сводку\n"
+    "  force перебивает QA-блок, если он отказал на minor/major\n"
     "/crypto_latest [YYYY-MM-DD] — отправить архивную сводку\n"
     "/crypto_run [YYYY-MM-DD] — collect + process + digest одной командой\n"
     "\n"
@@ -509,10 +510,13 @@ class TelegramCommandBot:
                 if chat_settings.auto_process:
                     self._process_for_chat(chat_settings)
                 digest, qa = self._build_digest_for_chat(chat_settings, digest_date)
-                if qa.recommendation == "do_not_send":
+                if _is_hard_qa_block(qa):
+                    issues_block = _format_qa_issues(qa)
                     text = (
-                        f"Плановая сводка за {digest_date} "
-                        f"заблокирована QA: {qa.severity}"
+                        f"Плановая сводка за {digest_date} заблокирована QA. "
+                        f"severity={qa.severity}.\n{issues_block}\n"
+                        "Вышли вручную: "
+                        f"/crypto_digest {digest_date} force"
                     )
                     self._send_plain(
                         chat_settings.chat_id,
@@ -521,6 +525,9 @@ class TelegramCommandBot:
                 else:
                     self._send_digest(chat_settings, digest)
                     sent += 1
+                    qa_note = _qa_advisory_note(qa)
+                    if qa_note:
+                        self._send_plain(chat_settings.chat_id, qa_note)
                 chat_settings.last_digest_sent_date = digest_date
                 self.storage.save_telegram_chat_settings(chat_settings)
             except Exception:
@@ -817,14 +824,23 @@ class TelegramCommandBot:
         )
 
     def _digest_command(self, chat_settings: TelegramChatSettings, args: str) -> str:
-        digest_date = args.strip() or None
+        digest_date, force = _parse_digest_args(args)
         digest, qa = self._build_digest_for_chat(chat_settings, digest_date)
-        if qa.recommendation == "do_not_send":
-            return f"QA заблокировал отправку: severity={qa.severity}."
+        if _is_hard_qa_block(qa) and not force:
+            issues_block = _format_qa_issues(qa)
+            return (
+                f"QA заблокировал отправку. severity={qa.severity}, "
+                f"recommendation={qa.recommendation}.\n"
+                f"{issues_block}\n"
+                "Чтобы всё равно отправить, добавь force:\n"
+                f"/crypto_digest {digest.digest_date} force"
+            )
         self._send_digest(chat_settings, digest)
+        qa_note = _qa_advisory_note(qa)
         return (
             f"Сводка за {digest.digest_date} отправлена. "
             f"QA={qa.recommendation}, severity={qa.severity}."
+            + (f"\n{qa_note}" if qa_note else "")
         )
 
     def _latest_command(self, chat_settings: TelegramChatSettings, args: str) -> str:
@@ -1503,12 +1519,89 @@ class TelegramCommandBot:
             )
 
 
+FORCE_TOKENS = {"force", "force!", "принудительно", "принудительно!"}
+
+
 def parse_command(text: str) -> tuple[str, str] | None:
     if not text.startswith("/"):
         return None
     first, _, rest = text.partition(" ")
     command = first[1:].split("@", 1)[0].strip().lower().replace("-", "_")
     return command, rest.strip()
+
+
+def _parse_digest_args(args: str) -> tuple[str | None, bool]:
+    """Split /crypto_digest args into (date, force).
+
+    Accepts ``YYYY-MM-DD``, ``force``, ``YYYY-MM-DD force`` or empty in any
+    order. The order-insensitive parse lets the user paste the force flag
+    in front of or after the date without thinking about it.
+    """
+
+    tokens = [tok for tok in args.strip().split() if tok]
+    force = False
+    date: str | None = None
+    for token in tokens:
+        if token.lower() in FORCE_TOKENS:
+            force = True
+            continue
+        date = token
+    return date, force
+
+
+def _is_hard_qa_block(qa: Any) -> bool:
+    """True only when the QA skill genuinely refuses publication.
+
+    ``do_not_send`` alone is too aggressive — Gemini sometimes returns
+    that verdict on minor copy concerns. Treat it as a hard block only
+    when the severity is ``blocker``. Lower severities become an
+    advisory note appended after the digest goes out.
+    """
+
+    severity = str(getattr(qa, "severity", "") or "").lower()
+    recommendation = str(getattr(qa, "recommendation", "") or "").lower()
+    return severity == "blocker" and recommendation == "do_not_send"
+
+
+def _format_qa_issues(qa: Any) -> str:
+    issues = list(getattr(qa, "issues", []) or [])[:3]
+    if not issues:
+        return "QA не указал конкретных замечаний."
+    lines: list[str] = ["Замечания QA:"]
+    for item in issues:
+        if isinstance(item, dict):
+            category = str(item.get("category") or "issue").strip()
+            note = str(
+                item.get("description")
+                or item.get("message")
+                or item.get("note")
+                or item.get("rationale")
+                or ""
+            ).strip()
+            severity = str(item.get("severity") or "").strip()
+            label = f"{category} ({severity})" if severity else category
+            lines.append(f"- {label}: {note[:200]}" if note else f"- {label}")
+        else:
+            lines.append(f"- {str(item)[:200]}")
+    return "\n".join(lines)
+
+
+def _qa_advisory_note(qa: Any) -> str:
+    """Note shown alongside a delivered digest when QA had concerns.
+
+    Returns an empty string for the clean ``send`` / ``severity=none``
+    happy path so the standard delivery confirmation stays terse.
+    """
+
+    severity = str(getattr(qa, "severity", "") or "").lower()
+    recommendation = str(getattr(qa, "recommendation", "") or "").lower()
+    if severity in {"", "none", "info"} and recommendation in {"", "send"}:
+        return ""
+    issues_block = _format_qa_issues(qa)
+    return (
+        f"QA отметил: severity={severity or 'unknown'}, "
+        f"recommendation={recommendation or 'unknown'}.\n{issues_block}"
+    )
 
 
 def _telegram_error_description(response: httpx.Response) -> str:
