@@ -99,23 +99,68 @@ def _source_authority(source_id: str, source_url: str) -> str:
 class GeminiSkillPipeline:
     """Orchestrates the daily AI processing pipeline through Gemini-backed skills."""
 
-    def __init__(self, llm: LlmClient, skill_loader: SkillLoader) -> None:
+    def __init__(
+        self,
+        llm: LlmClient,
+        skill_loader: SkillLoader,
+        *,
+        process_concurrency: int = 5,
+    ) -> None:
         self.llm = llm
         self.skill_loader = skill_loader
+        self.process_concurrency = max(1, int(process_concurrency))
 
     def process_articles(self, articles: Iterable[RawArticle]) -> list[ProcessedArticle]:
+        article_list = list(articles)
+        if not article_list:
+            return []
+        # Sequential mode for dry-run / single-article calls avoids the
+        # ThreadPoolExecutor overhead and keeps log ordering predictable.
+        if self.process_concurrency == 1 or len(article_list) == 1:
+            return self._process_sequential(article_list)
+        return self._process_parallel(article_list)
+
+    def _process_sequential(self, articles: list[RawArticle]) -> list[ProcessedArticle]:
         processed: list[ProcessedArticle] = []
         for article in articles:
-            try:
-                item = self.process_one(article)
-            except Exception:
-                logger.exception("article_processing_failed article_id=%s", article.id)
-                continue
-            if item.geo_priority != 0 and item.topics:
+            item = self._safe_process_one(article)
+            if item is not None and item.geo_priority != 0 and item.topics:
                 processed.append(item)
-            else:
-                logger.info("article_filtered article_id=%s reason=no_topics", article.id)
         return processed
+
+    def _process_parallel(self, articles: list[RawArticle]) -> list[ProcessedArticle]:
+        # Bounded ThreadPoolExecutor: each worker holds one Gemini request
+        # in flight. 5 is a balance between throughput and Gemini's free-tier
+        # per-minute rate limits.
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = min(self.process_concurrency, len(articles))
+        results: list[ProcessedArticle | None] = [None] * len(articles)
+        with ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="crypto-process",
+        ) as pool:
+            for index, item in enumerate(
+                pool.map(self._safe_process_one, articles)
+            ):
+                results[index] = item
+
+        processed: list[ProcessedArticle] = []
+        for item in results:
+            if item is None:
+                continue
+            if item.geo_priority == 0 or not item.topics:
+                logger.info("article_filtered article_id=%s reason=no_topics", item.id)
+                continue
+            processed.append(item)
+        return processed
+
+    def _safe_process_one(self, article: RawArticle) -> ProcessedArticle | None:
+        try:
+            return self.process_one(article)
+        except Exception:
+            logger.exception("article_processing_failed article_id=%s", article.id)
+            return None
 
     def process_one(self, article: RawArticle) -> ProcessedArticle:
         article = normalize_raw_article(article)

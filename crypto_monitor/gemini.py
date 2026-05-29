@@ -53,6 +53,12 @@ class GeminiClient:
                 response_mime_type="application/json",
                 temperature=self.temperature,
                 max_output_tokens=self.max_output_tokens,
+                # Skill calls are structured extraction, not multi-step
+                # reasoning. The default thinking budget on gemini-2.5-flash
+                # eats 600-3800 tokens per call (visible as
+                # thoughts_token_count in logs) and slows wall time roughly
+                # 30%. Pin to 0 to keep latency predictable.
+                thinking_config=self._types.ThinkingConfig(thinking_budget=0),
             )
             response = self._client.models.generate_content(
                 model=self.model,

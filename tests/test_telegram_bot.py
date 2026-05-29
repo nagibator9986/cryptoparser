@@ -341,6 +341,44 @@ def test_telegram_callback_toggle_flips_delivery(tmp_path) -> None:
     assert api.edited, "expected the menu to be redrawn after toggle"
 
 
+def test_collect_command_returns_ack_immediately_when_run_in_background(tmp_path) -> None:
+    import time as _time
+
+    # Test against an empty sources file so the background worker has
+    # nothing to fetch and finishes deterministically without hitting
+    # the network.
+    sources_path = tmp_path / "sources.yml"
+    sources_path.write_text("sources: []\n", encoding="utf-8")
+
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=Settings(
+            TELEGRAM_BOT_TOKEN="token",
+            CRYPTO_MONITOR_DB_PATH=tmp_path / "db.sqlite3",
+            CRYPTO_MONITOR_SOURCES_FILE=sources_path,
+        ),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+        admin_checker=lambda chat_id, user_id: True,
+    )
+
+    bot.handle_update(_message("/crypto_collect"))
+
+    assert api.sent, "expected an immediate ack message"
+    assert api.sent[-1]["text"].startswith("Запускаю: сбор")
+
+    # Polling loop is no longer blocked. The background worker eventually
+    # posts the real result; with no sources configured the result is
+    # the empty-sources notice.
+    for _ in range(50):
+        if any("Нет включенных источников" in entry["text"] for entry in api.sent):
+            break
+        _time.sleep(0.05)
+    else:
+        raise AssertionError("background result never arrived")
+
+
 def test_telegram_callback_rejects_non_admin(tmp_path) -> None:
     storage = SqliteStorage(tmp_path / "db.sqlite3")
     api = FakeTelegramApi()

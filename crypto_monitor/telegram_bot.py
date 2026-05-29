@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -278,6 +279,13 @@ class TelegramCommandBot:
         self.pipeline_factory = pipeline_factory or self._default_pipeline_factory
         self.admin_checker = admin_checker
         self.now_provider = now_provider or (lambda: datetime.now(UTC))
+        # Track heavy jobs running per chat. A chat can only have one
+        # background job in flight at a time — concurrent /crypto_process
+        # calls would burn the Gemini budget and confuse the user.
+        self._jobs_lock = threading.Lock()
+        self._active_jobs: dict[str, str] = {}
+        # Tests inject a synchronous executor by setting this to False.
+        self.run_jobs_in_background = True
 
     def prepare_long_polling(self) -> None:
         if hasattr(self.api, "delete_webhook"):
@@ -503,19 +511,31 @@ class TelegramCommandBot:
                 chat_id,
                 chat_title,
             )
-            return self._collect_for_chat(chat_settings)
+            return self._run_in_background(
+                chat_id,
+                "сбор",
+                lambda: self._collect_for_chat(chat_settings),
+            )
         if command == "crypto_process":
             chat_settings = self.storage.get_or_create_telegram_chat_settings(
                 chat_id,
                 chat_title,
             )
-            return self._process_for_chat(chat_settings)
+            return self._run_in_background(
+                chat_id,
+                "обработка",
+                lambda: self._process_for_chat(chat_settings),
+            )
         if command == "crypto_digest":
             chat_settings = self.storage.get_or_create_telegram_chat_settings(
                 chat_id,
                 chat_title,
             )
-            return self._digest_command(chat_settings, args)
+            return self._run_in_background(
+                chat_id,
+                "сборка сводки",
+                lambda: self._digest_command(chat_settings, args),
+            )
         if command == "crypto_latest":
             chat_settings = self.storage.get_or_create_telegram_chat_settings(
                 chat_id,
@@ -529,10 +549,17 @@ class TelegramCommandBot:
                 chat_id,
                 chat_title,
             )
-            collect_result = self._collect_for_chat(chat_settings)
-            process_result = self._process_for_chat(chat_settings)
-            digest_result = self._digest_command(chat_settings, args)
-            return "\n".join([collect_result, process_result, digest_result])
+            return self._run_in_background(
+                chat_id,
+                "сбор + обработка + сводка",
+                lambda: "\n".join(
+                    [
+                        self._collect_for_chat(chat_settings),
+                        self._process_for_chat(chat_settings),
+                        self._digest_command(chat_settings, args),
+                    ]
+                ),
+            )
         return None
 
     def _set_command(self, chat_settings: TelegramChatSettings, args: str) -> str:
@@ -878,6 +905,64 @@ class TelegramCommandBot:
             reply_to_message_id=reply_to_message_id,
         )
 
+    def _run_in_background(
+        self,
+        chat_id: str,
+        label: str,
+        target: Callable[[], str],
+    ) -> str:
+        """Run a heavy command in a background thread.
+
+        Returns an immediate acknowledgement string the polling loop can
+        ship back to the user; the real result arrives later as a separate
+        message. Refuses to start a second job for the same chat while the
+        first is still running — that prevents accidental double clicks
+        from doubling the Gemini bill.
+        """
+
+        if not self.run_jobs_in_background:
+            # Tests pin the synchronous path so they can assert on the
+            # final response text directly.
+            return target()
+
+        with self._jobs_lock:
+            active = self._active_jobs.get(chat_id)
+            if active:
+                return (
+                    f"Подожди, идёт задача: {active}. "
+                    "Пришлю результат, когда закончит."
+                )
+            self._active_jobs[chat_id] = label
+
+        def worker() -> None:
+            try:
+                result = target()
+            except Exception as exc:
+                logger.exception(
+                    "background_job_failed chat_id=%s label=%s",
+                    chat_id,
+                    label,
+                )
+                result = f"Ошибка ({label}): {type(exc).__name__}: {exc}"
+            finally:
+                with self._jobs_lock:
+                    self._active_jobs.pop(chat_id, None)
+            try:
+                self._send_plain(chat_id, result)
+            except Exception:
+                logger.exception(
+                    "background_job_response_send_failed chat_id=%s",
+                    chat_id,
+                )
+
+        thread = threading.Thread(
+            target=worker,
+            name=f"crypto-job-{chat_id}-{label}",
+            daemon=True,
+        )
+        thread.start()
+        return f"Запускаю: {label}. Пришлю результат, когда закончу."
+
     def _is_authorized(self, chat_id: str, user_id: int, chat_type: str) -> bool:
         if chat_type == "private":
             return True
@@ -1150,21 +1235,36 @@ class TelegramCommandBot:
             )
             return
 
-        # Long-running actions: ack immediately, then run in foreground.
+        # Long-running actions: ack immediately, then run in a background
+        # thread so the polling loop keeps serving other chats.
         if action == "run":
             self._safe_answer_callback(callback_id, text="Запускаю...")
-            try:
-                self._run_callback_action(args, chat_id, chat_title)
-            except Exception as exc:
-                logger.exception(
-                    "telegram_callback_run_failed args=%s chat_id=%s",
-                    args,
+            target = args[0] if args else ""
+            label_by_target = {
+                "collect": "сбор",
+                "process": "обработка",
+                "digest": "сборка сводки",
+                "latest": "архив",
+            }
+            label = label_by_target.get(target, target or "действие")
+
+            def runner() -> str:
+                chat_settings = self.storage.get_or_create_telegram_chat_settings(
                     chat_id,
+                    chat_title,
                 )
-                self._send_plain(
-                    chat_id,
-                    f"Ошибка: {type(exc).__name__}: {exc}",
-                )
+                if target == "collect":
+                    return self._collect_for_chat(chat_settings)
+                if target == "process":
+                    return self._process_for_chat(chat_settings)
+                if target == "digest":
+                    return self._digest_command(chat_settings, "")
+                if target == "latest":
+                    return self._latest_command(chat_settings, "")
+                return f"Неизвестное действие: {target}"
+
+            ack = self._run_in_background(chat_id, label, runner)
+            self._send_plain(chat_id, ack)
             return
 
         try:
@@ -1280,34 +1380,6 @@ class TelegramCommandBot:
             return "Неизвестное действие источников"
 
         return ""
-
-    def _run_callback_action(
-        self,
-        args: list[str],
-        chat_id: str,
-        chat_title: str | None,
-    ) -> None:
-        target = args[0] if args else ""
-        chat_settings = self.storage.get_or_create_telegram_chat_settings(
-            chat_id,
-            chat_title,
-        )
-        if target == "collect":
-            self._send_plain(chat_id, "Запускаю сбор...")
-            self._send_plain(chat_id, self._collect_for_chat(chat_settings))
-            return
-        if target == "process":
-            self._send_plain(chat_id, "Запускаю обработку...")
-            self._send_plain(chat_id, self._process_for_chat(chat_settings))
-            return
-        if target == "digest":
-            self._send_plain(chat_id, "Собираю сводку...")
-            self._send_plain(chat_id, self._digest_command(chat_settings, ""))
-            return
-        if target == "latest":
-            self._send_plain(chat_id, self._latest_command(chat_settings, ""))
-            return
-        self._send_plain(chat_id, f"Неизвестное действие: {target}")
 
     def _safe_answer_callback(
         self,
