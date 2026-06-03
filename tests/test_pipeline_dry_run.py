@@ -1,10 +1,11 @@
 from pathlib import Path
 
 from crypto_monitor.gemini import DryRunLlmClient
-from crypto_monitor.models import ProcessedArticle, RawArticle
+from crypto_monitor.models import Digest, ProcessedArticle, RawArticle, TelegramArticleBlock
 from crypto_monitor.pipeline import (
     GeminiSkillPipeline,
     _enforce_quotas,
+    _filter_articles_for_qa,
     apply_ranking_response,
     deduplicate_exact,
 )
@@ -125,6 +126,58 @@ def test_cis_quota_uses_source_fallback_when_classifier_says_geo3() -> None:
 
     ids = [article.id for article in ranked]
     assert "fk1" in ids, f"CIS source fallback must surface forklog story, got {ids}"
+
+
+def test_qa_filter_keeps_only_rendered_articles() -> None:
+    """Replicates the live QA false-positive: 3 ranked, 1 in the digest."""
+
+    kept = _processed("a1", "https://forklog.com/kept")
+    dropped_a = _processed("a2", "https://forklog.com/dropped-a")
+    dropped_b = _processed("a3", "https://forklog.com/dropped-b")
+
+    digest = Digest(
+        digest_date="2026-06-03",
+        html="<html>1</html>",
+        plain_text="Цифровые активы: 03.06.2026\nПубликаций в сводке: 1",
+        telegram_segments=["short"],
+        telegram_articles=[
+            TelegramArticleBlock(
+                section="Биржи, продукты, лицензирование",
+                title="kept",
+                summary="summary",
+                source_name="ForkLog",
+                source_url="https://forklog.com/kept",
+                published_at_text="03.06",
+                priority="medium",
+            ),
+        ],
+        stats={"total_articles": 1},
+    )
+
+    visible = _filter_articles_for_qa(digest, [kept, dropped_a, dropped_b])
+    visible_urls = {article.source_url for article in visible}
+
+    assert visible_urls == {"https://forklog.com/kept"}
+
+
+def test_qa_filter_falls_back_to_stats_when_telegram_articles_missing() -> None:
+    """Gemini's digest skill may omit telegram_articles; trust stats then."""
+
+    kept = _processed("a1", "https://forklog.com/kept")
+    extra = _processed("a2", "https://forklog.com/extra")
+
+    digest = Digest(
+        digest_date="2026-06-03",
+        html="<html/>",
+        plain_text="empty",
+        telegram_segments=["short"],
+        telegram_articles=[],
+        stats={"total_articles": 1},
+    )
+
+    visible = _filter_articles_for_qa(digest, [kept, extra])
+
+    assert [a.id for a in visible] == ["a1"]
 
 
 def test_quota_protects_legislation_from_truncation() -> None:

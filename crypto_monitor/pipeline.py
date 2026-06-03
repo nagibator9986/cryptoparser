@@ -437,6 +437,13 @@ class GeminiSkillPipeline:
         # drop telegram_segments (redundant with plain_text), and reduce
         # articles to the editorial-relevant fields. This keeps the prompt
         # well under Gemini's context window even for large digests.
+        #
+        # Crucially, `articles` here must reflect what is ACTUALLY in the
+        # digest, not the full ranked set. Otherwise QA flags a structural
+        # mismatch between e.g. "Публикаций в сводке: 1" in plain_text and
+        # the longer articles array — exactly the false positive that hit
+        # the live digest.
+        rendered = _filter_articles_for_qa(digest, articles)
         payload = {
             "digest_date": digest.digest_date,
             "plain_text": digest.plain_text,
@@ -457,7 +464,7 @@ class GeminiSkillPipeline:
                     "geo_priority": article.geo_priority,
                     "has_image": bool(article.image_url),
                 }
-                for article in articles
+                for article in rendered
             ],
         }
         try:
@@ -521,6 +528,36 @@ class GeminiSkillPipeline:
             system_prompt=skill.system_prompt,
             user_prompt=build_user_payload(task, payload),
         )
+
+
+def _filter_articles_for_qa(
+    digest: Digest,
+    articles: list[ProcessedArticle],
+) -> list[ProcessedArticle]:
+    """Restrict QA's `articles` view to publications actually in the digest.
+
+    The QA skill performs a structural consistency check that cross-checks
+    the per-section counts in plain_text against the length of the
+    `articles` array. When the digest builder dropped items (tag filter,
+    `total_max_items` cut, minor-event skip) we must hide those from QA so
+    the check doesn't fire on a phantom mismatch.
+
+    Primary signal: source_url of each `TelegramArticleBlock`. Fallback:
+    when telegram_articles is empty (Gemini skill response without the
+    field), trust `stats.total_articles` if it is a positive int smaller
+    than `len(articles)`.
+    """
+
+    rendered_urls = {
+        block.source_url for block in digest.telegram_articles if block.source_url
+    }
+    if rendered_urls:
+        return [a for a in articles if a.source_url in rendered_urls]
+    if isinstance(digest.stats, dict):
+        total = digest.stats.get("total_articles")
+        if isinstance(total, int) and 0 < total < len(articles):
+            return articles[:total]
+    return articles
 
 
 def deduplicate_exact(articles: list[ProcessedArticle]) -> list[ProcessedArticle]:
