@@ -88,6 +88,11 @@ FOOTER_TEXT = (
     "Возможны неточности в кратком изложении; "
     "для принятия решений обращайтесь к оригиналу."
 )
+QUIET_DAY_NOTICE = (
+    "Сегодня не зафиксировано значимых событий в индустрии "
+    "цифровых активов для банковской повестки РК и СНГ. "
+    "Низкосигнальные публикации намеренно опущены."
+)
 
 
 def render_digest_locally(
@@ -96,6 +101,12 @@ def render_digest_locally(
     max_items_per_section: int = 5,
     total_max_items: int = 25,
 ) -> Digest:
+    # Quality floor enforced again here as a defence-in-depth measure:
+    # even if upstream forgot, the local renderer guarantees no LOW-
+    # priority article ever reaches the reader.
+    articles = [a for a in articles if (a.priority or "medium") != "low"]
+    if not articles:
+        return _render_quiet_day_digest(digest_date)
     selected = sorted(articles, key=_article_sort_key)[:total_max_items]
     sections: OrderedDict[str, list[ProcessedArticle]] = OrderedDict(
         (name, []) for name in SECTION_RULES
@@ -143,6 +154,50 @@ def render_digest_locally(
                 1 for items in sections.values() for article in items if article.image_url
             ),
             "renderer": "local_fallback",
+        },
+    )
+
+
+def _render_quiet_day_digest(digest_date: str) -> Digest:
+    display = _display_date(digest_date)
+    plain_text = (
+        f"Цифровые активы: {display}\n"
+        f"Публикаций в сводке: 0\n\n"
+        f"{QUIET_DAY_NOTICE}\n\n"
+        f"{FOOTER_TEXT}"
+    )
+    html = (
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>'
+        '<body style="font-family:Arial,sans-serif;'
+        'background:#F4F6F8;margin:0;padding:24px;">'
+        '<main style="max-width:640px;margin:0 auto;background:#fff;'
+        'padding:24px;">'
+        f'<h1 style="color:#1F4E79;">Цифровые активы: {escape(display)}</h1>'
+        f'<p style="color:#444;">{escape(QUIET_DAY_NOTICE)}</p>'
+        '<footer style="font-size:12px;color:#666;">'
+        f'{escape(FOOTER_TEXT)}</footer></main></body></html>'
+    )
+    telegram_segment = (
+        f"*Цифровые активы: {_escape_md(display)}*\n\n"
+        f"{_escape_md(QUIET_DAY_NOTICE)}\n\n"
+        f"_{_escape_md(FOOTER_TEXT)}_"
+    )
+    return Digest(
+        digest_date=digest_date,
+        html=html,
+        plain_text=plain_text,
+        telegram_segments=[telegram_segment],
+        telegram_articles=[],
+        header_text=(
+            f"Цифровые активы: {display}\nПубликаций в сводке: 0"
+        ),
+        footer_text=FOOTER_TEXT,
+        stats={
+            "total_articles": 0,
+            "by_section": {},
+            "with_image": 0,
+            "renderer": "local_fallback_quiet_day",
+            "quiet_day": True,
         },
     )
 

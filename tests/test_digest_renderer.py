@@ -106,6 +106,54 @@ def test_events_section_renders_event_metadata() -> None:
     assert "2025-11-12/2025-11-14" in digest.plain_text
 
 
+def test_low_priority_articles_are_excluded_and_quiet_day_notice_shown() -> None:
+    """Replicates the Nobitex live case: only low article in pool → quiet day."""
+
+    iran = _article(
+        "iran",
+        title="США ввели санкции против Nobitex",
+        country="US",
+        geo_priority=3,
+        priority="low",
+        score=20,
+        topics=["regulation", "exchanges"],
+    )
+
+    digest = render_digest_locally([iran], digest_date="2026-06-03")
+
+    assert "Nobitex" not in digest.plain_text
+    assert "не зафиксировано" in digest.plain_text
+    assert digest.stats.get("total_articles") == 0
+    assert digest.stats.get("quiet_day") is True
+    assert digest.telegram_articles == []
+
+
+def test_low_priority_articles_are_filtered_when_mixed_with_high() -> None:
+    iran = _article(
+        "iran",
+        title="США ввели санкции против Nobitex",
+        country="US",
+        geo_priority=3,
+        priority="low",
+        score=20,
+        topics=["regulation", "exchanges"],
+    )
+    kz = _article(
+        "kz",
+        title="AFSA выдало лицензию криптопровайдеру",
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=80,
+    )
+
+    digest = render_digest_locally([iran, kz], digest_date="2026-06-03")
+
+    assert "Nobitex" not in digest.plain_text
+    assert "AFSA" in digest.plain_text
+    assert digest.stats.get("total_articles") == 1
+
+
 def _article(
     article_id: str,
     *,

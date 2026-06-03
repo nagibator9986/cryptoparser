@@ -336,8 +336,21 @@ class GeminiSkillPipeline:
         max_items_per_section: int = 5,
         total_max_items: int = 25,
     ) -> Digest:
+        # Filter LOW once more before the costly skill call. When nothing
+        # survives, render the quiet-day notice directly — calling the
+        # builder with an empty payload only invites schema-violation
+        # responses from Gemini.
+        articles = [a for a in articles if (a.priority or "medium") != "low"]
+        resolved_date = digest_date or date.today().isoformat()
+        if not articles:
+            return render_digest_locally(
+                [],
+                digest_date=resolved_date,
+                max_items_per_section=max_items_per_section,
+                total_max_items=total_max_items,
+            )
         payload = {
-            "digest_date": digest_date or date.today().isoformat(),
+            "digest_date": resolved_date,
             "articles": [article.model_dump(mode="json") for article in articles],
             "max_items_per_section": max_items_per_section,
             "total_max_items": total_max_items,
@@ -356,7 +369,7 @@ class GeminiSkillPipeline:
             logger.warning("digest_builder_failed_using_local_renderer error=%s", exc)
             return render_digest_locally(
                 articles,
-                digest_date=payload["digest_date"],
+                digest_date=resolved_date,
                 max_items_per_section=max_items_per_section,
                 total_max_items=total_max_items,
             )
@@ -617,6 +630,20 @@ def apply_ranking_response(
     return _enforce_quotas(ranked, articles, total_max_items=total_max_items)
 
 
+def _is_signal(article: ProcessedArticle) -> bool:
+    """Quality floor: anything the prioritizer scored 'low' is noise.
+
+    Surfacing a story we already labelled low-signal — typical examples:
+    small foreign enforcement perepostings, OFAC sanctions on third-country
+    exchanges, price predictions — directly contradicts the prioritizer's
+    verdict. An empty digest is strictly better than a digest of noise: it
+    tells the reader the day was genuinely quiet, instead of fabricating
+    activity.
+    """
+
+    return (article.priority or "medium") != "low"
+
+
 def _enforce_quotas(
     ranked: list[ProcessedArticle],
     candidates: list[ProcessedArticle],
@@ -629,20 +656,29 @@ def _enforce_quotas(
     obvious markers with a louder global one. We enforce the audience
     contract here so a Kazakhstan-bank digest never silently degrades to
     a generic international feed when local material is available.
+
+    Quality interacts with quota: quota fillers come ONLY from non-low
+    candidates. If the only KZ/CIS article in the pool is low-signal,
+    the slot is left empty — silence over noise.
     """
 
     if total_max_items <= 0 or not ranked:
-        return ranked[:total_max_items]
+        return [a for a in ranked[:total_max_items] if _is_signal(a)]
 
     kz_quota = max(KZ_HARD_MIN, int(total_max_items * KZ_QUOTA_RATIO))
     cis_quota = max(CIS_HARD_MIN, int(total_max_items * CIS_QUOTA_RATIO))
     leg_quota = max(1, int(total_max_items * LEGISLATION_QUOTA_RATIO))
 
+    ranked = [a for a in ranked if _is_signal(a)]
+    candidates_signal = [a for a in candidates if _is_signal(a)]
+    if not ranked and not candidates_signal:
+        return []
+
     head = ranked[:total_max_items]
     head_ids = {article.id for article in head}
 
     def pool(predicate: Any) -> list[ProcessedArticle]:
-        return [a for a in sorted(candidates, key=article_sort_key) if predicate(a)]
+        return [a for a in sorted(candidates_signal, key=article_sort_key) if predicate(a)]
 
     def boost(predicate: Any, quota: int) -> None:
         current = sum(1 for a in head if predicate(a))
