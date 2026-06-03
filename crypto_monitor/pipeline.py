@@ -81,6 +81,11 @@ RANKING_TASK = (
 KZ_QUOTA_RATIO = 0.20
 CIS_QUOTA_RATIO = 0.20
 LEGISLATION_QUOTA_RATIO = 0.10
+# Hard floor: at least one CIS story per digest regardless of size, when
+# any CIS candidate exists in the pool. Bank stakeholders explicitly asked
+# for visible CIS coverage even on quiet news days.
+CIS_HARD_MIN = 1
+KZ_HARD_MIN = 1
 
 
 _TIER1_HINTS = (
@@ -129,6 +134,30 @@ def _source_authority(source_id: str, source_url: str) -> str:
     if any(hint in haystack for hint in _TIER3_HINTS):
         return "tier3_international"
     return "tier4_other"
+
+
+# Source-id / URL substrings that identify a publication as CIS-based.
+# Used by `_enforce_quotas` as a fallback when the classifier marked a CIS
+# story as geo_priority=3 (common when the article body references US/EU
+# entities even though the editorial lens is CIS). Distinct from
+# `_TIER2_HINTS`: that tier mixes KZ media (forbes.kz, kapital.kz, kase.kz)
+# which must NOT count toward the CIS quota — KZ already has its own slot.
+_CIS_SOURCE_HINTS = (
+    "forklog",
+    "cbr.ru",
+    "cbu.uz",
+    "nbkr",
+    "bits.media",
+    "incrypted",
+    "decenter",
+    "coinspot.io",
+    "habr.com",
+)
+
+
+def _is_cis_source(source_id: str, source_url: str) -> bool:
+    haystack = f"{source_id} {source_url}".lower()
+    return any(hint in haystack for hint in _CIS_SOURCE_HINTS)
 
 
 class GeminiSkillPipeline:
@@ -559,8 +588,8 @@ def _enforce_quotas(
     if total_max_items <= 0 or not ranked:
         return ranked[:total_max_items]
 
-    kz_quota = max(1, int(total_max_items * KZ_QUOTA_RATIO))
-    cis_quota = max(1, int(total_max_items * CIS_QUOTA_RATIO))
+    kz_quota = max(KZ_HARD_MIN, int(total_max_items * KZ_QUOTA_RATIO))
+    cis_quota = max(CIS_HARD_MIN, int(total_max_items * CIS_QUOTA_RATIO))
     leg_quota = max(1, int(total_max_items * LEGISLATION_QUOTA_RATIO))
 
     head = ranked[:total_max_items]
@@ -582,9 +611,20 @@ def _enforce_quotas(
             if current >= quota:
                 break
 
+    def is_cis(article: ProcessedArticle) -> bool:
+        # Primary signal: classifier-assigned geo_priority. Fallback:
+        # known CIS publisher even when the classifier flagged the
+        # article as geo_priority=3 (typical for forklog/bits stories
+        # that mention foreign entities but cover CIS jurisdiction).
+        if article.geo_priority == 2:
+            return True
+        if article.geo_priority == 1:
+            return False  # KZ has its own quota; do not double-count.
+        return _is_cis_source(article.source_id, article.source_url)
+
     boost(lambda a: a.is_legislative and a.geo_priority in {1, 2}, leg_quota)
     boost(lambda a: a.geo_priority == 1, kz_quota)
-    boost(lambda a: a.geo_priority == 2, cis_quota)
+    boost(is_cis, cis_quota)
 
     if len(head) <= total_max_items:
         return head
@@ -601,7 +641,7 @@ def _enforce_quotas(
         elif article.geo_priority == 1 and seen_protected["kz"] < kz_quota:
             protected.add(article.id)
             seen_protected["kz"] += 1
-        elif article.geo_priority == 2 and seen_protected["cis"] < cis_quota:
+        elif is_cis(article) and seen_protected["cis"] < cis_quota:
             protected.add(article.id)
             seen_protected["cis"] += 1
 

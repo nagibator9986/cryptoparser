@@ -91,6 +91,42 @@ def test_quota_inserts_kz_article_pushed_out_by_global_news() -> None:
     assert "cis1" in ids, f"CIS quota must guarantee inclusion, got {ids}"
 
 
+def test_cis_quota_uses_source_fallback_when_classifier_says_geo3() -> None:
+    """A ForkLog story tagged geo_priority=3 must still fill the CIS slot."""
+
+    kz = _processed("kz1", "https://nationalbank.kz/1")
+    # Classifier mistakenly assigned geo_priority=3, but the source itself
+    # is forklog.com — a known CIS publisher. The quota fallback must
+    # recognise it.
+    cis_fallback = _processed(
+        "fk1",
+        "https://forklog.com/cis-news",
+        country="INT",
+        geo_priority=3,
+    )
+    cis_fallback.source_id = "forklog"
+    cis_fallback.source_name = "ForkLog"
+    intl_a = _processed("int_a", "https://coindesk.com/a", country="US", geo_priority=3)
+    intl_b = _processed("int_b", "https://coindesk.com/b", country="US", geo_priority=3)
+    intl_c = _processed("int_c", "https://coindesk.com/c", country="US", geo_priority=3)
+
+    ranked = apply_ranking_response(
+        [kz, cis_fallback, intl_a, intl_b, intl_c],
+        {
+            "ranked_articles": [
+                {"id": "int_a", "priority": "high", "score": 80},
+                {"id": "int_b", "priority": "high", "score": 75},
+                {"id": "int_c", "priority": "high", "score": 70},
+            ],
+            "dropped_ids": ["kz1", "fk1"],
+        },
+        total_max_items=4,
+    )
+
+    ids = [article.id for article in ranked]
+    assert "fk1" in ids, f"CIS source fallback must surface forklog story, got {ids}"
+
+
 def test_quota_protects_legislation_from_truncation() -> None:
     """Legislative KZ news must survive the total_max_items cut."""
 
