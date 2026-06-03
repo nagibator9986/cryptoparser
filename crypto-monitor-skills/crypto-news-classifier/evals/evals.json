@@ -51,6 +51,44 @@
         "geo_priority == 1",
         "confidence < 0.75"
       ]
+    },
+    {
+      "id": 5,
+      "name": "kz-legislation-introduced",
+      "prompt": "Classify this news. Input: {\"title\": \"В Мажилис внесён законопроект о цифровых активах\", \"body\": \"Депутаты Мажилиса Парламента РК внесли законопроект, регулирующий обращение цифровых активов и обязанности провайдеров услуг. Документ направлен на рассмотрение в профильный комитет.\", \"source_name\": \"gov.kz\", \"source_url\": \"https://gov.kz/news/123\", \"language\": \"ru\"}",
+      "expected_output": "topics включает regulation, country=KZ, geo_priority=1, is_legislative=true, legislative_stage='introduced'",
+      "assertions": [
+        "Output is valid JSON",
+        "'regulation' in topics",
+        "country == 'KZ'",
+        "geo_priority == 1",
+        "is_legislative is present",
+        "legislative_stage is present"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "kz-major-event-aifc",
+      "prompt": "Classify this news. Input: {\"title\": \"AIFC проведёт форум Astana Finance Days 12-14 ноября\", \"body\": \"Международный финансовый центр Астана объявил программу Astana Finance Days. Среди спикеров — глава AFSA, представители НБРК, Halyk, Kaspi и крупных мировых бирж. Мероприятие ожидает более 2000 участников.\", \"source_name\": \"aifc.kz\", \"source_url\": \"https://aifc.kz/news/123\", \"language\": \"ru\"}",
+      "expected_output": "topics включает 'events', country=KZ, geo_priority=1, event_scale='kz_major'",
+      "assertions": [
+        "Output is valid JSON",
+        "'events' in topics",
+        "country == 'KZ'",
+        "geo_priority == 1",
+        "event_scale is present",
+        "event_location is present"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "small-meetup-filtered",
+      "prompt": "Classify this news. Input: {\"title\": \"В Алматы прошёл крипто-митап для энтузиастов\", \"body\": \"В одном из коворкингов Алматы собрались около 30 участников крипто-сообщества для обсуждения личных стратегий торговли. Организаторы не раскрывают список спикеров.\", \"source_name\": \"telegram.org/almaty_crypto\", \"source_url\": \"https://t.me/almaty_crypto/123\", \"language\": \"ru\"}",
+      "expected_output": "topics=[] либо без 'events' — мелкое мероприятие не попадает в дайджест",
+      "assertions": [
+        "Output is valid JSON",
+        "topics does not contain 'events' OR topics is an empty array"
+      ]
     }
   ]
 }

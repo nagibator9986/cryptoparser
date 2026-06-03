@@ -4,6 +4,7 @@ from crypto_monitor.gemini import DryRunLlmClient
 from crypto_monitor.models import ProcessedArticle, RawArticle
 from crypto_monitor.pipeline import (
     GeminiSkillPipeline,
+    _enforce_quotas,
     apply_ranking_response,
     deduplicate_exact,
 )
@@ -60,7 +61,64 @@ def test_apply_ranking_response_updates_order_priority_and_score() -> None:
     assert ranked[0].ranking_reason == "More important for KZ bank."
 
 
-def _processed(article_id: str, source_url: str) -> ProcessedArticle:
+def test_quota_inserts_kz_article_pushed_out_by_global_news() -> None:
+    """When Gemini drops all KZ entries, the quota must bring them back."""
+
+    kz = _processed("kz1", "https://nationalbank.kz/1")
+    cis = _processed("cis1", "https://forklog.com/1", country="RU", geo_priority=2)
+    intl_a = _processed("int_a", "https://coindesk.com/a", country="US", geo_priority=3)
+    intl_b = _processed("int_b", "https://coindesk.com/b", country="US", geo_priority=3)
+    intl_c = _processed("int_c", "https://coindesk.com/c", country="US", geo_priority=3)
+
+    # Gemini returns only the three international items — KZ and CIS are absent.
+    ranked = apply_ranking_response(
+        [kz, cis, intl_a, intl_b, intl_c],
+        {
+            "ranked_articles": [
+                {"id": "int_a", "priority": "high", "score": 80},
+                {"id": "int_b", "priority": "high", "score": 75},
+                {"id": "int_c", "priority": "high", "score": 70},
+            ],
+            "dropped_ids": ["kz1", "cis1"],
+        },
+        total_max_items=5,
+    )
+
+    # int_* are dropped_ids, so they should not appear; the quota must
+    # surface KZ + CIS even though Gemini explicitly dropped them.
+    ids = [article.id for article in ranked]
+    assert "kz1" in ids, f"KZ quota must guarantee inclusion, got {ids}"
+    assert "cis1" in ids, f"CIS quota must guarantee inclusion, got {ids}"
+
+
+def test_quota_protects_legislation_from_truncation() -> None:
+    """Legislative KZ news must survive the total_max_items cut."""
+
+    leg = _processed("leg1", "https://gov.kz/1", country="KZ", geo_priority=1)
+    leg.is_legislative = True
+    leg.legislative_stage = "introduced"
+    fillers = [
+        _processed(
+            f"fill{i}",
+            f"https://coindesk.com/{i}",
+            country="US",
+            geo_priority=3,
+        )
+        for i in range(10)
+    ]
+
+    head = [*fillers, leg]
+    result = _enforce_quotas(head, [*fillers, leg], total_max_items=3)
+    assert "leg1" in [article.id for article in result]
+
+
+def _processed(
+    article_id: str,
+    source_url: str,
+    *,
+    country: str = "KZ",
+    geo_priority: int = 1,
+) -> ProcessedArticle:
     return ProcessedArticle(
         id=article_id,
         source_id="src",
@@ -70,8 +128,8 @@ def _processed(article_id: str, source_url: str) -> ProcessedArticle:
         body="AFSA сообщило о лицензировании поставщика услуг цифровых активов.",
         language="ru",
         topics=["regulation"],
-        country="KZ",
-        geo_priority=1,
+        country=country,
+        geo_priority=geo_priority,
         priority="high",
         score=80,
     )

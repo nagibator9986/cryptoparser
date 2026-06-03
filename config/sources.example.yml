@@ -1,23 +1,103 @@
 sources:
+  # --- Tier 1: Казахстан, регуляторы и официальные площадки ---
+
   - id: nationalbank-kz
     name: National Bank of Kazakhstan
-    url: https://nationalbank.kz/rss/news
-    type: rss
+    # The previous /rss/news endpoint started returning 404 and silently
+    # starved the digest of KZ regulator content. The press releases page
+    # is the working canonical URL and is parsed via the generic HTML
+    # collector (og:image + article extraction).
+    url: https://nationalbank.kz/ru/news/press-relizy
+    type: html
     enabled: true
     language_hint: ru
     country_hint: KZ
     priority_hint: 1
-    poll_interval_minutes: 240
+    poll_interval_minutes: 180
 
   - id: afsa-aifc
     name: AFSA
-    url: https://afsa.aifc.kz/
+    url: https://afsa.aifc.kz/news
     type: html
     enabled: true
     language_hint: en
     country_hint: KZ
     priority_hint: 1
     poll_interval_minutes: 240
+
+  - id: aifc
+    name: Astana International Financial Centre
+    url: https://aifc.kz/news
+    type: html
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 1
+    poll_interval_minutes: 240
+
+  - id: ardfm
+    name: ARDFM (Agency for Regulation and Development of Financial Markets)
+    url: https://www.gov.kz/memleket/entities/ardfm?lang=ru
+    type: html
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 1
+    poll_interval_minutes: 360
+
+  - id: astanahub
+    name: Astana Hub
+    url: https://astanahub.com/ru/
+    type: html
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 1
+    poll_interval_minutes: 360
+
+  - id: kase
+    name: Kazakhstan Stock Exchange
+    url: https://www.kase.kz/ru/news/
+    type: html
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 2
+    poll_interval_minutes: 360
+
+  # --- Tier 2: казахстанские деловые СМИ (RSS) ---
+
+  - id: kapital-kz
+    name: Kapital.kz
+    url: https://kapital.kz/feed
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 2
+    poll_interval_minutes: 60
+
+  - id: kursiv-kz
+    name: Kursiv Media (KZ)
+    url: https://kz.kursiv.media/feed/
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 2
+    poll_interval_minutes: 60
+
+  - id: forbes-kz
+    name: Forbes.kz
+    url: https://forbes.kz/finances/finance
+    type: html
+    enabled: true
+    language_hint: ru
+    country_hint: KZ
+    priority_hint: 2
+    poll_interval_minutes: 120
+
+  # --- Tier 2: СНГ — крупные RSS-источники ---
 
   - id: forklog
     name: ForkLog
@@ -27,7 +107,66 @@ sources:
     language_hint: ru
     country_hint: RU
     priority_hint: 2
-    poll_interval_minutes: 30
+    poll_interval_minutes: 60
+
+  - id: incrypted
+    name: Incrypted
+    url: https://incrypted.com/feed/
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: UA
+    priority_hint: 2
+    poll_interval_minutes: 60
+
+  - id: coinspot
+    name: CoinSpot
+    url: https://www.coinspot.io/feed/
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: RU
+    priority_hint: 2
+    poll_interval_minutes: 90
+
+  - id: decenter
+    name: DeCenter
+    url: https://decenter.org/ru/rss
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: RU
+    priority_hint: 2
+    poll_interval_minutes: 90
+
+  - id: habr-crypto
+    name: Habr — Cryptocurrencies hub
+    url: https://habr.com/ru/rss/hub/cryptocurrency/all/
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: RU
+    priority_hint: 3
+    poll_interval_minutes: 120
+
+  # --- Tier 2: СНГ регулятор (RU) ---
+
+  - id: cbr-ru
+    name: Bank of Russia — News
+    # cbr.ru blocks HTTPS for many client TLS stacks; HTTP RSS endpoint
+    # is the canonical one published by the regulator.
+    url: http://www.cbr.ru/rss/RssNews
+    type: rss
+    enabled: true
+    language_hint: ru
+    country_hint: RU
+    priority_hint: 2
+    poll_interval_minutes: 180
+
+  # --- Tier 3: международные крипто-медиа ---
+  # Понижены приоритет и частота опроса: они дают самый большой поток,
+  # но самый низкий сигнал для банка РК. Полностью отключать нельзя —
+  # глобальные критические события (USDT depeg, TOP-30 hacks) идут через них.
 
   - id: coindesk
     name: CoinDesk
@@ -37,7 +176,7 @@ sources:
     language_hint: en
     country_hint: US
     priority_hint: 3
-    poll_interval_minutes: 30
+    poll_interval_minutes: 90
 
   - id: cointelegraph
     name: Cointelegraph
@@ -47,4 +186,4 @@ sources:
     language_hint: en
     country_hint: US
     priority_hint: 3
-    poll_interval_minutes: 30
+    poll_interval_minutes: 90

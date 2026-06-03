@@ -55,6 +55,57 @@ def test_local_digest_builds_structured_telegram_articles_with_image() -> None:
     assert digest.stats.get("with_image") == 1
 
 
+def test_legislation_section_shows_first_and_includes_stage_prefix() -> None:
+    legislation = _article(
+        "leg",
+        title="В Мажилис внесён законопроект о цифровых активах",
+        country="KZ",
+        geo_priority=1,
+        priority="critical",
+        score=92,
+    )
+    legislation.is_legislative = True
+    legislation.legislative_stage = "introduced"
+    other = _article(
+        "cbdc",
+        title="НБРК запустил вторую фазу цифрового тенге",
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=80,
+        topics=["cbdc"],
+    )
+
+    digest = render_digest_locally([other, legislation], digest_date="2026-05-26")
+
+    assert "Законодательные изменения" in digest.plain_text
+    leg_pos = digest.plain_text.find("Законодательные изменения")
+    cbdc_pos = digest.plain_text.find("CBDC")
+    assert leg_pos < cbdc_pos, "legislation section must appear before CBDC"
+    assert "Внесён законопроект:" in digest.plain_text
+
+
+def test_events_section_renders_event_metadata() -> None:
+    event = _article(
+        "ev",
+        title="AIFC проведёт Astana Finance Days",
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=75,
+        topics=["events", "regulation"],
+    )
+    event.event_date = "2025-11-12/2025-11-14"
+    event.event_location = "Астана, AIFC"
+    event.event_scale = "kz_major"
+
+    digest = render_digest_locally([event], digest_date="2026-05-26")
+
+    assert "Мероприятия и форумы" in digest.plain_text
+    assert "Астана, AIFC" in digest.plain_text
+    assert "2025-11-12/2025-11-14" in digest.plain_text
+
+
 def _article(
     article_id: str,
     *,
@@ -64,6 +115,7 @@ def _article(
     priority: str,
     score: int,
     image_url: str | None = None,
+    topics: list[str] | None = None,
 ) -> ProcessedArticle:
     return ProcessedArticle(
         id=article_id,
@@ -76,7 +128,7 @@ def _article(
         language="ru",
         title_ru=title,
         summary=f"{title}. Краткое описание события для проверки сортировки.",
-        topics=["regulation", "licensing"],
+        topics=topics if topics is not None else ["regulation", "licensing"],
         country=country,
         geo_priority=geo_priority,
         priority=cast(Priority, priority),

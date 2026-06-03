@@ -138,7 +138,41 @@ class DryRunLlmClient:
                     "country": "KZ",
                     "geo_priority": 0,
                     "confidence": 0.93,
+                    "is_legislative": False,
                     "reasoning": "Публикация не относится к индустрии цифровых активов.",
+                }
+            if "мажилис" in prompt and ("законопроект" in prompt or "цифров" in prompt):
+                return {
+                    "topics": ["regulation"],
+                    "country": "KZ",
+                    "geo_priority": 1,
+                    "confidence": 0.94,
+                    "is_legislative": True,
+                    "legislative_stage": "introduced",
+                    "reasoning": (
+                        "Dry-run: законопроект о цифровых активах внесён в Мажилис РК."
+                    ),
+                }
+            if "astana finance days" in prompt or "форум" in prompt and "aifc" in prompt:
+                return {
+                    "topics": ["events", "regulation"],
+                    "country": "KZ",
+                    "geo_priority": 1,
+                    "confidence": 0.95,
+                    "is_legislative": False,
+                    "event_date": "2025-11-12/2025-11-14",
+                    "event_location": "Астана, AIFC",
+                    "event_scale": "kz_major",
+                    "reasoning": "Dry-run: крупный отраслевой форум в РК.",
+                }
+            if "privvy" in prompt or ("$12,3 млн" in prompt and "sec" in prompt):
+                return {
+                    "topics": ["regulation", "security-incidents"],
+                    "country": "US",
+                    "geo_priority": 3,
+                    "confidence": 0.9,
+                    "is_legislative": False,
+                    "reasoning": "Dry-run: иск SEC против частной компании Privvy.",
                 }
             if "sec charges" in prompt or "sec.gov" in prompt:
                 return {
@@ -146,6 +180,7 @@ class DryRunLlmClient:
                     "country": "US",
                     "geo_priority": 3,
                     "confidence": 0.95,
+                    "is_legislative": False,
                     "reasoning": "Dry-run: регуляторный кейс SEC против криптобиржи.",
                 }
             if "afsa grants" in prompt or "afsa granted" in prompt:
@@ -154,6 +189,7 @@ class DryRunLlmClient:
                     "country": "KZ",
                     "geo_priority": 1,
                     "confidence": 0.6,
+                    "is_legislative": False,
                     "reasoning": "Dry-run: AFSA относится к юрисдикции МФЦА в Казахстане.",
                 }
             return {
@@ -161,6 +197,7 @@ class DryRunLlmClient:
                 "country": "KZ" if "казахстан" in prompt or "нбрк" in prompt else "INT",
                 "geo_priority": 1 if "казахстан" in prompt or "нбрк" in prompt else 0,
                 "confidence": 0.9,
+                "is_legislative": False,
                 "reasoning": "Dry-run классификация без вызова Gemini.",
             }
         if skill_name == "crypto-news-translator":
@@ -256,15 +293,28 @@ class DryRunLlmClient:
                 kz_markers = ("afsa", "nationalbank", "нбрк")
                 for index, article_id in enumerate(dict.fromkeys(ids)):
                     article_window = _window_around_id(user_prompt.lower(), article_id.lower())
-                    if any(marker in article_window for marker in kz_markers):
-                        priority = "high"
-                        score = 90 - index
+                    is_legislative = '"is_legislative": true' in article_window
+                    event_scale = _extract_event_scale(article_window)
+                    is_privvy = "privvy" in article_window
+                    geo_1 = '"geo_priority": 1' in article_window
+                    geo_2 = '"geo_priority": 2' in article_window
+
+                    if is_legislative and geo_1:
+                        priority, score = "critical", 92 - index
+                    elif is_legislative and geo_2:
+                        priority, score = "high", 78 - index
+                    elif event_scale == "kz_major":
+                        priority, score = "high", 75 - index
+                    elif event_scale == "cis_major":
+                        priority, score = "medium", 55 - index
+                    elif is_privvy:
+                        priority, score = "low", 22 - index
+                    elif any(marker in article_window for marker in kz_markers):
+                        priority, score = "high", 90 - index
                     elif "sec" in article_window or "security" in article_window:
-                        priority = "high"
-                        score = 82 - index
+                        priority, score = "high", 82 - index
                     else:
-                        priority = "medium"
-                        score = 60 - index
+                        priority, score = "medium", 60 - index
                     ranked.append(
                         {
                             "id": article_id,
@@ -275,11 +325,44 @@ class DryRunLlmClient:
                     )
                 ranked.sort(
                     key=lambda item: (
-                        0 if item["priority"] == "high" else 1,
+                        {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(
+                            item["priority"], 4
+                        ),
                         -int(item["score"]),
                     )
                 )
                 return {"ranked_articles": ranked, "dropped_ids": []}
+            if "is_legislative\": true" in prompt and "geo_priority\": 1" in prompt:
+                return {
+                    "priority": "critical",
+                    "score": 90,
+                    "geo_bumped": False,
+                    "reasoning": "Dry-run: законопроект РК — авто-эскалация до critical.",
+                }
+            if "is_legislative\": true" in prompt and "geo_priority\": 2" in prompt:
+                return {
+                    "priority": "high",
+                    "score": 74,
+                    "geo_bumped": False,
+                    "reasoning": "Dry-run: законопроект СНГ — авто-эскалация до high.",
+                }
+            if "event_scale\": \"kz_major\"" in prompt:
+                return {
+                    "priority": "high",
+                    "score": 75,
+                    "geo_bumped": False,
+                    "reasoning": "Dry-run: крупное мероприятие в РК — auto high.",
+                }
+            if "privvy" in prompt:
+                return {
+                    "priority": "low",
+                    "score": 22,
+                    "geo_bumped": False,
+                    "reasoning": (
+                        "Dry-run: перепечатка мелкого US enforcement "
+                        "(Privvy) — анти-усиление."
+                    ),
+                }
             if "депег" in prompt or "$0.94" in prompt:
                 return {
                     "priority": "critical",
@@ -462,3 +545,13 @@ def _window_around_id(text: str, article_id: str, radius: int = 900) -> str:
     start = max(0, position - radius // 2)
     end = min(len(text), position + radius)
     return text[start:end]
+
+
+def _extract_event_scale(window: str) -> str | None:
+    match = re.search(r'"event_scale":\s*"([a-z_]+)"', window)
+    if not match:
+        return None
+    value = match.group(1)
+    if value in {"kz_major", "cis_major", "global_major", "minor"}:
+        return value
+    return None

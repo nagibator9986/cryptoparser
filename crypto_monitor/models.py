@@ -66,6 +66,13 @@ class ProcessedArticle(RawArticle):
     key_entities: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     ranking_reason: str | None = None
+    is_legislative: bool = False
+    legislative_stage: Literal[
+        "introduced", "debated", "adopted", "signed", "in_force"
+    ] | None = None
+    event_date: str | None = None
+    event_location: str | None = None
+    event_scale: Literal["kz_major", "cis_major", "global_major", "minor"] | None = None
 
 
 class TelegramArticleBlock(BaseModel):
@@ -77,6 +84,9 @@ class TelegramArticleBlock(BaseModel):
     published_at_text: str
     priority: str
     image_url: str | None = None
+    event_date: str | None = None
+    event_location: str | None = None
+    legislative_stage: str | None = None
 
 
 class Digest(BaseModel):

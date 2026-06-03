@@ -1,7 +1,7 @@
 ---
 name: crypto-news-classifier
-description: Use this skill whenever Claude needs to classify a crypto / digital-asset news article. The skill assigns topic tags (regulation, CBDC, exchanges, products, licensing, tokenization, DeFi, stablecoins, banks, blockchain-platforms, wallets, ai-in-crypto, security-incidents, market-events), a country/region tag (ISO-3166-1 alpha-2), and a geo-priority level (1 = Kazakhstan, 2 = CIS / Central Asia, 3 = rest of world). Trigger this skill whenever the input is a news article (title + body + source) and the user wants tags, labels, categories, topics, geographic routing, or priority decisions for a crypto digest. Use this ALSO when the user says "tag this", "what topics does this cover", "is this Kazakh news", "categorize for me", "route this article".
-version: 1.0.0
+description: Use this skill whenever Claude needs to classify a crypto / digital-asset news article. The skill assigns topic tags (regulation, CBDC, exchanges, products, licensing, tokenization, DeFi, stablecoins, banks, blockchain-platforms, wallets, ai-in-crypto, security-incidents, market-events, events), a country/region tag (ISO-3166-1 alpha-2), and a geo-priority level (1 = Kazakhstan, 2 = CIS / Central Asia, 3 = rest of world). For legislative news it also sets is_legislative=true with an optional legislative_stage. For events it sets event_date, event_location and event_scale when present in the text. Trigger this skill whenever the input is a news article (title + body + source) and the user wants tags, labels, categories, topics, geographic routing, or priority decisions for a crypto digest. Use this ALSO when the user says "tag this", "what topics does this cover", "is this Kazakh news", "categorize for me", "route this article".
+version: 1.1.0
 license: Proprietary
 ---
 
@@ -46,6 +46,11 @@ Skill принимает на вход публикацию (заголовок 
   "country": "KZ",
   "geo_priority": 1,
   "confidence": 0.92,
+  "is_legislative": false,
+  "legislative_stage": null,
+  "event_date": null,
+  "event_location": null,
+  "event_scale": null,
   "reasoning": "Публикация от Национального банка РК о запуске пилота цифрового тенге."
 }
 ```
@@ -55,11 +60,27 @@ Skill принимает на вход публикацию (заголовок 
 - **country** — двухбуквенный код страны или `INT` для международных событий без привязки.
 - **geo_priority** — целое число: 1 (РК), 2 (СНГ/ЦА), 3 (остальное), 0 (нерелевантно).
 - **confidence** — число от 0 до 1, уверенность модели.
+- **is_legislative** — `true`, если новость про закон/законопроект/поправки/
+  постановление парламента (Мажилис, Сенат, Госдума, Парламент). Иначе `false`.
+- **legislative_stage** — одно из `introduced`, `debated`, `adopted`, `signed`,
+  `in_force`, либо `null`, если поле `is_legislative=false` или стадия не
+  следует из текста.
+- **event_date** — для тега `events`: ISO `YYYY-MM-DD` (или диапазон
+  `YYYY-MM-DD/YYYY-MM-DD`), если дата явно указана. Иначе `null`.
+- **event_location** — для тега `events`: город или название площадки, если
+  явно указаны. Иначе `null`.
+- **event_scale** — для тега `events`: `kz_major` | `cis_major` |
+  `global_major` | `minor`. Если масштаб неясен — `null` и применять тег
+  `events` не следует.
 - **reasoning** — 1–2 предложения на русском, обосновывающих выбор.
+
+Поля `is_legislative`, `legislative_stage`, `event_date`, `event_location`,
+`event_scale` — опциональные. Если данных в тексте нет, возвращай `null` /
+`false` — никогда не выдумывай. Лишние поля не вредят, отсутствие — не ошибка.
 
 Если публикация не относится к крипто/финтех/регулированию финрынка — верни:
 ```json
-{"topics": [], "country": "INT", "geo_priority": 0, "confidence": 0.95, "reasoning": "Публикация не относится к индустрии цифровых активов."}
+{"topics": [], "country": "INT", "geo_priority": 0, "confidence": 0.95, "is_legislative": false, "reasoning": "Публикация не относится к индустрии цифровых активов."}
 ```
 
 ## Алгоритм
@@ -162,7 +183,60 @@ Skill принимает на вход публикацию (заголовок 
   "country": "KZ",
   "geo_priority": 0,
   "confidence": 0.93,
+  "is_legislative": false,
   "reasoning": "Публикация о курсе фиатной валюты, не относится к индустрии цифровых активов."
+}
+```
+
+### Пример 4: законопроект РК (is_legislative=true)
+
+Вход:
+```json
+{
+  "title": "В Мажилис внесён законопроект о цифровых активах",
+  "body": "Депутаты Мажилиса РК внесли законопроект, регулирующий обращение цифровых активов и обязанности провайдеров услуг. Документ направлен на рассмотрение в профильный комитет.",
+  "source_name": "gov.kz",
+  "language": "ru"
+}
+```
+
+Выход:
+```json
+{
+  "topics": ["regulation"],
+  "country": "KZ",
+  "geo_priority": 1,
+  "confidence": 0.94,
+  "is_legislative": true,
+  "legislative_stage": "introduced",
+  "reasoning": "Законопроект о цифровых активах внесён в Мажилис РК — стадия introduced."
+}
+```
+
+### Пример 5: значимый форум в РК (events)
+
+Вход:
+```json
+{
+  "title": "AIFC проведёт форум по цифровым активам Astana Finance Days 12-14 ноября",
+  "body": "Международный финансовый центр Астана объявил программу Astana Finance Days. Среди спикеров — глава AFSA, представители НБРК, Halyk, Kaspi и крупных мировых бирж. Мероприятие ожидает более 2000 участников.",
+  "source_name": "aifc.kz",
+  "language": "ru"
+}
+```
+
+Выход:
+```json
+{
+  "topics": ["events", "regulation"],
+  "country": "KZ",
+  "geo_priority": 1,
+  "confidence": 0.95,
+  "is_legislative": false,
+  "event_date": "2025-11-12/2025-11-14",
+  "event_location": "Астана, AIFC",
+  "event_scale": "kz_major",
+  "reasoning": "Крупный отраслевой форум в Астане с участием AFSA, НБРК и системообразующих банков."
 }
 ```
 
@@ -184,6 +258,17 @@ Skill принимает на вход публикацию (заголовок 
 
 Почему: упоминание страны вскользь не делает новость казахстанской. Главный субъект и регулирующая юрисдикция — Россия. Правильно — `geo_priority: 2`.
 
+### Антипример 3: мелкое мероприятие под тегом `events`
+
+Вход: статья об открытом митапе крипто-энтузиастов в Алматы на 30 человек,
+без публичной программы и отраслевых партнёров.
+
+❌ Неправильно: `topics: ["events"], event_scale: "minor"`
+
+Почему: тег `events` зарезервирован для крупных мероприятий. Мелкие митапы и
+закрытые встречи возвращают `topics: []` — иначе шум попадёт в раздел
+«Мероприятия» сводки. Правильно — пустой `topics`.
+
 ## Граничные случаи
 
 - **Текст на казахском** → классифицируй по содержанию; геоприоритет почти всегда 1.
@@ -195,3 +280,8 @@ Skill принимает на вход публикацию (заголовок 
 ## Версионирование
 
 - **1.0.0** — первая версия. Закрытый справочник из 14 тегов; 4-уровневая шкала приоритетов.
+- **1.1.0** — добавлен тег `events` для крупных мероприятий и форумов;
+  опциональные поля `is_legislative`, `legislative_stage` для подсветки
+  законодательных новостей; опциональные поля `event_date`,
+  `event_location`, `event_scale`. Старый контракт совместим — новые поля
+  не обязательны.

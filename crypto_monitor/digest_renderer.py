@@ -7,24 +7,39 @@ from html import escape
 from crypto_monitor.models import Digest, ProcessedArticle, TelegramArticleBlock
 from crypto_monitor.normalization import format_article_date
 
+# Articles with topics containing 'events' are dedicated to the Events
+# section regardless of which other tags they carry. We bake the exclusion
+# directly into the regulation/licensing predicates so that a forum
+# announcement with `topics=['events', 'regulation']` reaches the Events
+# section even though the SECTION_RULES iteration order places Events last
+# (matching the SKILL.md render order).
 SECTION_RULES = OrderedDict(
     [
         (
+            "Законодательные изменения (РК и СНГ)",
+            lambda a: a.is_legislative and a.geo_priority in {1, 2},
+        ),
+        (
             "Регулирование Республики Казахстан",
-            lambda a: a.geo_priority == 1 and _has(a, "regulation", "licensing"),
+            lambda a: a.geo_priority == 1
+            and _has(a, "regulation", "licensing")
+            and not _has(a, "events"),
         ),
         (
             "Регулирование СНГ и Центральной Азии",
-            lambda a: a.geo_priority == 2 and _has(a, "regulation", "licensing"),
+            lambda a: a.geo_priority == 2
+            and _has(a, "regulation", "licensing")
+            and not _has(a, "events"),
         ),
         (
             "CBDC и государственные цифровые инициативы",
-            lambda a: _has(a, "cbdc"),
+            lambda a: _has(a, "cbdc") and not _has(a, "events"),
         ),
-        ("Банки и финтех", lambda a: _has(a, "banks")),
+        ("Банки и финтех", lambda a: _has(a, "banks") and not _has(a, "events")),
         (
             "Биржи, продукты, лицензирование",
-            lambda a: _has(a, "exchanges", "products", "licensing"),
+            lambda a: _has(a, "exchanges", "products", "licensing")
+            and not _has(a, "events"),
         ),
         (
             "Технологии, инфраструктура, безопасность",
@@ -37,14 +52,29 @@ SECTION_RULES = OrderedDict(
                 "tokenization",
                 "defi",
                 "stablecoins",
-            ),
+            )
+            and not _has(a, "events"),
         ),
         (
             "Кратко: международные новости",
-            lambda a: a.geo_priority == 3 and (a.priority in {"high", "critical"}),
+            lambda a: a.geo_priority == 3
+            and (a.priority in {"high", "critical"})
+            and not _has(a, "events"),
+        ),
+        (
+            "Мероприятия и форумы",
+            lambda a: _has(a, "events") and (a.event_scale or "minor") != "minor",
         ),
     ]
 )
+
+LEGISLATIVE_STAGE_RU = {
+    "introduced": "внесён законопроект",
+    "debated": "рассматривается",
+    "adopted": "принят",
+    "signed": "подписан",
+    "in_force": "вступил в силу",
+}
 
 PRIORITY_MARKERS = {
     "critical": "CRITICAL",
@@ -82,6 +112,15 @@ def render_digest_locally(
             if len(sections[name]) >= max_items_per_section:
                 break
 
+    # Section-specific resort: legislation goes by stage (signed > adopted >
+    # debated > introduced > in_force), events by scale (kz > cis > global).
+    leg_section = "Законодательные изменения (РК и СНГ)"
+    if leg_section in sections:
+        sections[leg_section].sort(key=_legislation_sort_key)
+    events_section = "Мероприятия и форумы"
+    if events_section in sections:
+        sections[events_section].sort(key=_events_sort_key)
+
     sections = OrderedDict((name, items) for name, items in sections.items() if items)
     html = _render_html(sections, digest_date)
     plain_text = _render_plain(sections, digest_date)
@@ -114,6 +153,11 @@ def _build_telegram_articles(
     blocks: list[TelegramArticleBlock] = []
     for section, articles in sections.items():
         for article in articles:
+            stage_ru = (
+                LEGISLATIVE_STAGE_RU.get(article.legislative_stage)
+                if article.legislative_stage
+                else None
+            )
             blocks.append(
                 TelegramArticleBlock(
                     section=section,
@@ -124,6 +168,9 @@ def _build_telegram_articles(
                     published_at_text=format_article_date(article.published_at),
                     priority=(article.priority or "medium").lower(),
                     image_url=article.image_url,
+                    event_date=article.event_date,
+                    event_location=article.event_location,
+                    legislative_stage=stage_ru,
                 )
             )
     return blocks
@@ -168,11 +215,29 @@ def _render_html(sections: OrderedDict[str, list[ProcessedArticle]], digest_date
             f"{escape(section)}</h2>"
         )
         for article in articles:
+            title = article.title_ru or article.title
+            if article.is_legislative and article.legislative_stage:
+                stage_ru = LEGISLATIVE_STAGE_RU.get(article.legislative_stage)
+                if stage_ru:
+                    title = f"{stage_ru[0].upper()}{stage_ru[1:]}: {title}"
+            meta_lines: list[str] = []
+            if article.event_date:
+                meta_lines.append(f"Дата мероприятия: {escape(article.event_date)}")
+            if article.event_location:
+                meta_lines.append(f"Место: {escape(article.event_location)}")
+            meta_html = (
+                "<p style=\"font-size:12px;color:#444;\">"
+                + " · ".join(meta_lines)
+                + "</p>"
+                if meta_lines
+                else ""
+            )
             body.append(
                 '<article style="border-left:4px solid #2E75B6;'
                 'padding:12px;margin:12px 0;background:#F5F9FD;">'
                 f"<strong>{escape((article.priority or 'medium').upper())}</strong>"
-                f"<h3>{escape(article.title_ru or article.title)}</h3>"
+                f"<h3>{escape(title)}</h3>"
+                f"{meta_html}"
                 f"<p>{escape(article.summary or article.body[:500])}</p>"
                 f'<p style="font-size:12px;color:#666;">'
                 f"Источник: {escape(article.source_name)} "
@@ -193,10 +258,19 @@ def _render_plain(sections: OrderedDict[str, list[ProcessedArticle]], digest_dat
     for section, articles in sections.items():
         lines.extend([section, "-" * len(section)])
         for article in articles:
-            lines.append(
-                f"[{(article.priority or 'medium').upper()}] "
-                f"{article.title_ru or article.title}"
-            )
+            title = article.title_ru or article.title
+            if article.is_legislative and article.legislative_stage:
+                stage_ru = LEGISLATIVE_STAGE_RU.get(article.legislative_stage)
+                if stage_ru:
+                    title = f"{stage_ru[0].upper()}{stage_ru[1:]}: {title}"
+            lines.append(f"[{(article.priority or 'medium').upper()}] {title}")
+            if article.event_date or article.event_location:
+                meta = []
+                if article.event_date:
+                    meta.append(f"Дата мероприятия: {article.event_date}")
+                if article.event_location:
+                    meta.append(f"Место: {article.event_location}")
+                lines.append(" · ".join(meta))
             lines.append(article.summary or article.body[:500])
             lines.append(
                 f"Источник: {article.source_name} | "
@@ -216,13 +290,26 @@ def _render_telegram_blocks(
     for section, articles in sections.items():
         blocks.append(f"\n*{_escape_md(section)}*")
         for article in articles:
-            title = _escape_md(article.title_ru or article.title)
+            base_title = article.title_ru or article.title
+            if article.is_legislative and article.legislative_stage:
+                stage_ru = LEGISLATIVE_STAGE_RU.get(article.legislative_stage)
+                if stage_ru:
+                    base_title = f"{stage_ru[0].upper()}{stage_ru[1:]}: {base_title}"
+            title = _escape_md(base_title)
             summary = _escape_md(article.summary or article.body[:500])
             source = _escape_md(article.source_name)
             published = _escape_md(format_article_date(article.published_at))
             marker = PRIORITY_MARKERS.get(article.priority or "medium", "MEDIUM")
+            meta_line = ""
+            if article.event_date or article.event_location:
+                parts: list[str] = []
+                if article.event_date:
+                    parts.append(_escape_md(f"Дата: {article.event_date}"))
+                if article.event_location:
+                    parts.append(_escape_md(f"Место: {article.event_location}"))
+                meta_line = " \\| ".join(parts) + "\n\n"
             blocks.append(
-                f"*{marker}*\n*{title}*\n\n{summary}\n\n"
+                f"*{marker}*\n*{title}*\n\n{meta_line}{summary}\n\n"
                 f"{source} \\| {published} \\| [оригинал]({article.source_url})\n"
             )
     blocks.append(f"\n_{_escape_md(FOOTER_TEXT)}_")
@@ -258,6 +345,34 @@ def _article_sort_key(article: ProcessedArticle) -> tuple[int, int, int, float]:
         -(article.score or 0),
         -published,
     )
+
+
+_LEGISLATIVE_STAGE_RANK = {
+    "signed": 0,
+    "adopted": 1,
+    "debated": 2,
+    "introduced": 3,
+    "in_force": 4,
+    None: 5,
+}
+_EVENT_SCALE_RANK = {
+    "kz_major": 0,
+    "cis_major": 1,
+    "global_major": 2,
+    "minor": 3,
+    None: 4,
+}
+
+
+def _legislation_sort_key(article: ProcessedArticle) -> tuple[int, int, int]:
+    geo = article.geo_priority if article.geo_priority in {1, 2} else 3
+    stage_rank = _LEGISLATIVE_STAGE_RANK.get(article.legislative_stage, 5)
+    return (geo, stage_rank, -(article.score or 0))
+
+
+def _events_sort_key(article: ProcessedArticle) -> tuple[int, int]:
+    scale_rank = _EVENT_SCALE_RANK.get(article.event_scale, 4)
+    return (scale_rank, -(article.score or 0))
 
 
 def parse_date(value: str | None) -> str:

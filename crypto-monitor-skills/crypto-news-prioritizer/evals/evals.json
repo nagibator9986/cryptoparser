@@ -45,6 +45,39 @@
         "priority == 'low'",
         "score < 30"
       ]
+    },
+    {
+      "id": 5,
+      "name": "kz-legislation-auto-critical",
+      "prompt": "Prioritize this news. Input: {\"title\": \"В Мажилис внесён законопроект о цифровых активах\", \"summary\": \"Депутаты Мажилиса внесли законопроект, регулирующий обращение цифровых активов.\", \"topics\": [\"regulation\"], \"country\": \"KZ\", \"geo_priority\": 1, \"source_name\": \"gov.kz\", \"key_entities\": [\"Мажилис РК\"], \"is_legislative\": true, \"legislative_stage\": \"introduced\"}",
+      "expected_output": "Priority critical, score >= 85 — авто-эскалация для KZ законодательства",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'critical'",
+        "score > 80"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "aggregator-foreign-enforcement-downgrade",
+      "prompt": "Prioritize this news. Input: {\"title\": \"SEC подала иск против основателя Privvy Investments за криптосхему на $12,3 млн\", \"summary\": \"Комиссия по ценным бумагам США обвинила Натана Фуллера, основателя Privvy Investments, в организации мошеннической схемы на $12,3 млн. Он привлёк около 150 инвесторов.\", \"topics\": [\"regulation\", \"security-incidents\"], \"country\": \"US\", \"geo_priority\": 3, \"source_name\": \"forklog.com\", \"key_entities\": [\"SEC\", \"Privvy Investments\", \"Натан Фуллер\"]}",
+      "expected_output": "Priority low — перепечатка агрегатором мелкого US enforcement",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'low'",
+        "score < 40"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "kz-major-event-auto-high",
+      "prompt": "Prioritize this news. Input: {\"title\": \"AIFC проведёт Astana Finance Days 12-14 ноября\", \"summary\": \"Международный финансовый центр Астана объявил программу форума с участием AFSA, НБРК и крупных банков.\", \"topics\": [\"events\", \"regulation\"], \"country\": \"KZ\", \"geo_priority\": 1, \"source_name\": \"aifc.kz\", \"key_entities\": [\"AIFC\", \"AFSA\", \"НБРК\"], \"event_date\": \"2025-11-12/2025-11-14\", \"event_location\": \"Астана, AIFC\", \"event_scale\": \"kz_major\"}",
+      "expected_output": "Priority high, score >= 70 — крупный форум в РК",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'high'",
+        "score > 65"
+      ]
     }
   ]
 }

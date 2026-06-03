@@ -33,11 +33,11 @@ Telegram-группы.
 | ФТ-3.1 URL-дубли | Реализовано | Добавлен exact URL dedup с очисткой tracking-параметров. |
 | ФТ-3.2 Semantic dedup | Частично | LLM-skill кластеризует; embeddings/MinHash нет. |
 | ФТ-3.3 Кластеры событий | Частично | Skill возвращает canonical IDs; хранение links-to-duplicates не выделено в схему. |
-| ФТ-4 Classification | Реализовано | Через `crypto-news-classifier`. |
+| ФТ-4 Classification | Реализовано | Через `crypto-news-classifier`. Тег `events` и поля `is_legislative`/`event_*` добавлены в v1.1. |
 | ФТ-5 Summarization | Реализовано | Через `crypto-news-summarizer`, с QA skill. |
-| ФТ-6 Приоритизация и сортировка | Реализовано для MVP | Сортировка: geo priority, priority, score, chronology. |
+| ФТ-6 Приоритизация и сортировка | Реализовано для MVP | Сортировка: geo priority, priority, score, chronology. Авто-эскалация для законодательства РК/СНГ, авто-оценка для мероприятий по `event_scale`, анти-усиление для агрегаторных перепечаток мелких US/EU enforcement (v1.1). Квоты KZ/CIS/legislation enforced в коде (`_enforce_quotas`). |
 | ФТ-7.1 Сводка за предыдущие сутки | Реализовано | CLI/Telegram используют date-filter по локальному дню. |
-| ФТ-7.2 Разделы сводки | Реализовано | 7 секций есть в local renderer и digest skill. |
+| ФТ-7.2 Разделы сводки | Реализовано | 9 секций в local renderer и digest skill: Законодательство (защищён), Регулирование РК, Регулирование СНГ, CBDC, Банки, Биржи, Технологии, Международные, Мероприятия. |
 | ФТ-7.3 Дата в блоке | Реализовано | Дата публикации выводится в HTML/plain/Telegram fallback. |
 | ФТ-7.4 Доставка 09:00 Алматы | Частично | Telegram bot отправляет в 09:00 ±5 минут; системного scheduler для email нет. |
 | ФТ-7.5 Модерация | Не реализовано | Нужен отдельный approval workflow. |
@@ -72,6 +72,26 @@ Telegram-группы.
 - **Validated image flow**: `normalize_image_url` отсекает data: URIs и tracking pixels, резолвит relative paths.
 - **Per-article Telegram sendPhoto** с MarkdownV2-caption, секционные заголовки и fallback на текст при ошибке доставки фото.
 - **Inline-keyboard UI**: главное меню, настройки, расписание, источники, приоритет, действия (с RBAC).
+- **Покрытие KZ/CIS контентом** (после фидбэка о доминировании US-новостей):
+  расширен каталог источников до 17 (KZ-регулятор переключён на работающий
+  HTML-эндпойнт; добавлены AFSA, AIFC, ARDFM, Astana Hub, KASE, Kapital.kz,
+  Kursiv, Forbes.kz, ForkLog, Incrypted, CoinSpot, DeCenter, Habr Crypto,
+  Bank of Russia RSS); CoinDesk/Cointelegraph понижены до priority=3 с
+  poll_interval=90 мин.
+- **Защита KZ/CIS-секций при ранжировании**: Python-квоты 20% KZ / 20% CIS /
+  10% legislation в `apply_ranking_response` гарантируют, что глобальные
+  новости не вытесняют локальный контент даже при пустом ответе от Gemini.
+- **Раздел «Законодательные изменения»** в дайджесте (новый Раздел 0):
+  защищён от усечения по `total_max_items`, сортируется по стадии
+  (`signed > adopted > debated > introduced > in_force`).
+- **Раздел «Мероприятия и форумы»** в дайджесте (новый Раздел 8): только
+  `event_scale=kz_major | cis_major | global_major`; в карточке выводятся
+  `event_date` и `event_location`.
+- **Анти-усиление для иностранных enforcement-перепечаток**: в `RANKING_TASK`
+  и `crypto-news-prioritizer/references/aggregator-foreign-enforcement.md`
+  зафиксированы условия, при которых иск US/EU регулятора против
+  непубличной компании <$50M / <500 потерпевших получает low (см. исходный
+  Privvy-кейс из фидбэка).
 
 ## Production backlog
 

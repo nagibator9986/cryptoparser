@@ -27,24 +27,47 @@ RANKING_TASK = (
     "no external knowledge required.\n"
     "\n"
     "Scoring rubric (0-100):\n"
-    "  90-100 critical : new KZ law, AFSA/AIFC/НБ РК licence or revocation, "
-    "                   CBDC launch milestone, major bank crypto product, "
-    "                   sanctions, $100M+ security incident.\n"
-    "  70-89  high     : official regulator stance, CIS regulator action, "
-    "                   significant market infra change, established "
-    "                   exchange listing/licensing affecting KZ users.\n"
+    "  90-100 critical : KZ legislation on digital assets at ANY stage "
+    "                   (is_legislative=true + geo_priority=1); AFSA/AIFC/"
+    "                   НБ РК licence, revocation or guidance; CBDC launch "
+    "                   milestone; major bank crypto product; sanctions; "
+    "                   $100M+ security incident against a known player.\n"
+    "  70-89  high     : CIS legislation on digital assets (is_legislative"
+    "                   =true + geo_priority=2); official regulator policy "
+    "                   document or rule-making (NOT a routine fraud case); "
+    "                   CIS regulator action; significant market infra "
+    "                   change; established exchange (TOP-30) listing/"
+    "                   licensing affecting KZ users; major KZ event "
+    "                   (event_scale=kz_major).\n"
     "  50-69  medium   : expert commentary with named source, mid-tier "
     "                   product launch, regulatory clarification, notable "
-    "                   tokenisation or DeFi case.\n"
+    "                   tokenisation or DeFi case, major CIS event "
+    "                   (event_scale=cis_major).\n"
     "  20-49  low      : minor token updates, generic market commentary, "
-    "                   stale news repackaged.\n"
+    "                   stale news repackaged, aggregator-reported small "
+    "                   foreign enforcement (see below), minor events.\n"
     "   0-19  drop     : price predictions, promotional content, "
     "                   speculative rumours, near-duplicate of higher "
-    "                   ranked items.\n"
+    "                   ranked items, events with event_scale=minor.\n"
     "\n"
     "Hard rules:\n"
     "  - geo_priority 1 articles get +1 step over an equivalent global "
     "    item, but never invent KZ relevance.\n"
+    "  - is_legislative=true AND geo_priority in {1,2} => priority is at "
+    "    LEAST high; for geo_priority=1 default to critical.\n"
+    "  - topics contain 'events': priority follows event_scale "
+    "    (kz_major=high, cis_major=medium, global_major=medium, "
+    "    minor/null=drop).\n"
+    "  - AGGREGATOR ENFORCEMENT DOWNGRADE: if source_authority is "
+    "    tier2_national OR tier4_other AND topics include 'regulation' AND "
+    "    country is US/EU/GB AND the defendant is not a known TOP-50 "
+    "    industry player (Binance, Coinbase, Kraken, Bybit, OKX, Bitstamp, "
+    "    Gemini, Bitfinex, HTX, Tether, Circle, MakerDAO, Paxos, BlockFi, "
+    "    Genesis, Celsius, Robinhood Crypto, BlackRock, Fidelity, Grayscale, "
+    "    Ripple, Aave, Uniswap, Maker, Lido, Curve, Compound) AND the case "
+    "    looks like a routine fraud/private-securities matter "
+    "    (raised <$50M OR <500 victims) => downgrade to LOW (score 15-30), "
+    "    cite this rule in ranking_reason.\n"
     "  - prefer the original publisher over aggregators when scores tie.\n"
     "  - ids in ranked_articles MUST be from the supplied set; never "
     "    invent or transliterate identifiers.\n"
@@ -55,6 +78,10 @@ RANKING_TASK = (
     " dropped_ids:[{id, reason}]}."
 )
 
+KZ_QUOTA_RATIO = 0.20
+CIS_QUOTA_RATIO = 0.20
+LEGISLATION_QUOTA_RATIO = 0.10
+
 
 _TIER1_HINTS = (
     "afsa",
@@ -63,6 +90,8 @@ _TIER1_HINTS = (
     "gov.kz",
     "ardfm",
     "mdai",
+    "astanahub",
+    "kase.kz",
 )
 _TIER2_HINTS = (
     "kapital",
@@ -72,6 +101,12 @@ _TIER2_HINTS = (
     "cbr.ru",
     "cbu.uz",
     "nbkr",
+    "bits.media",
+    "incrypted",
+    "decenter",
+    "coinspot.io",
+    "habr.com",
+    "profinance.kz",
 )
 _TIER3_HINTS = (
     "coindesk",
@@ -198,6 +233,21 @@ class GeminiSkillPipeline:
         result.country = classified.get("country")
         result.geo_priority = classified.get("geo_priority")
         result.confidence = classified.get("confidence")
+        # New v1.1 side-channel fields. All optional — classifier returns
+        # them only when the underlying text supports the signal.
+        result.is_legislative = bool(classified.get("is_legislative") or False)
+        legislative_stage = classified.get("legislative_stage")
+        if legislative_stage in {"introduced", "debated", "adopted", "signed", "in_force"}:
+            result.legislative_stage = legislative_stage  # type: ignore[assignment]
+        event_date = classified.get("event_date")
+        if isinstance(event_date, str) and event_date:
+            result.event_date = event_date
+        event_location = classified.get("event_location")
+        if isinstance(event_location, str) and event_location:
+            result.event_location = event_location
+        event_scale = classified.get("event_scale")
+        if event_scale in {"kz_major", "cis_major", "global_major", "minor"}:
+            result.event_scale = event_scale  # type: ignore[assignment]
 
         if not result.topics or result.geo_priority == 0:
             return result
@@ -327,6 +377,11 @@ class GeminiSkillPipeline:
                             "score": article.score,
                             "key_entities": article.key_entities,
                             "has_image": bool(article.image_url),
+                            "is_legislative": article.is_legislative,
+                            "legislative_stage": article.legislative_stage,
+                            "event_date": article.event_date,
+                            "event_location": article.event_location,
+                            "event_scale": article.event_scale,
                             "warnings": article.warnings,
                         }
                         for article in candidates
@@ -484,7 +539,83 @@ def apply_ranking_response(
             continue
         ranked.append(article)
         seen.add(article.id)
-    return ranked[:total_max_items]
+    return _enforce_quotas(ranked, articles, total_max_items=total_max_items)
+
+
+def _enforce_quotas(
+    ranked: list[ProcessedArticle],
+    candidates: list[ProcessedArticle],
+    *,
+    total_max_items: int,
+) -> list[ProcessedArticle]:
+    """Guarantee minimum slots for KZ / CIS / legislative content.
+
+    The Gemini ranker can de-prioritise local stories when they share
+    obvious markers with a louder global one. We enforce the audience
+    contract here so a Kazakhstan-bank digest never silently degrades to
+    a generic international feed when local material is available.
+    """
+
+    if total_max_items <= 0 or not ranked:
+        return ranked[:total_max_items]
+
+    kz_quota = max(1, int(total_max_items * KZ_QUOTA_RATIO))
+    cis_quota = max(1, int(total_max_items * CIS_QUOTA_RATIO))
+    leg_quota = max(1, int(total_max_items * LEGISLATION_QUOTA_RATIO))
+
+    head = ranked[:total_max_items]
+    head_ids = {article.id for article in head}
+
+    def pool(predicate: Any) -> list[ProcessedArticle]:
+        return [a for a in sorted(candidates, key=article_sort_key) if predicate(a)]
+
+    def boost(predicate: Any, quota: int) -> None:
+        current = sum(1 for a in head if predicate(a))
+        if current >= quota:
+            return
+        for candidate in pool(predicate):
+            if candidate.id in head_ids:
+                continue
+            head.append(candidate)
+            head_ids.add(candidate.id)
+            current += 1
+            if current >= quota:
+                break
+
+    boost(lambda a: a.is_legislative and a.geo_priority in {1, 2}, leg_quota)
+    boost(lambda a: a.geo_priority == 1, kz_quota)
+    boost(lambda a: a.geo_priority == 2, cis_quota)
+
+    if len(head) <= total_max_items:
+        return head
+
+    # Reductions: prefer to drop excess geo_priority=3 medium/low entries
+    # rather than the quota-protected ones we just inserted.
+    protected: set[str] = set()
+    seen_protected: dict[str, int] = {"leg": 0, "kz": 0, "cis": 0}
+    for article in head:
+        if article.is_legislative and article.geo_priority in {1, 2} \
+                and seen_protected["leg"] < leg_quota:
+            protected.add(article.id)
+            seen_protected["leg"] += 1
+        elif article.geo_priority == 1 and seen_protected["kz"] < kz_quota:
+            protected.add(article.id)
+            seen_protected["kz"] += 1
+        elif article.geo_priority == 2 and seen_protected["cis"] < cis_quota:
+            protected.add(article.id)
+            seen_protected["cis"] += 1
+
+    trimmed: list[ProcessedArticle] = []
+    overflow: list[ProcessedArticle] = []
+    for article in head:
+        if article.id in protected:
+            trimmed.append(article)
+        else:
+            overflow.append(article)
+    overflow.sort(key=article_sort_key)
+    while len(trimmed) < total_max_items and overflow:
+        trimmed.append(overflow.pop(0))
+    return trimmed[:total_max_items]
 
 
 def _normalized_url_key(url: str) -> str:
