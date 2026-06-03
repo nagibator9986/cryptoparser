@@ -174,6 +174,15 @@ class DryRunLlmClient:
                     "is_legislative": False,
                     "reasoning": "Dry-run: иск SEC против частной компании Privvy.",
                 }
+            if "nobitex" in prompt or ("ofac" in prompt and "иран" in prompt):
+                return {
+                    "topics": ["regulation"],
+                    "country": "US",
+                    "geo_priority": 3,
+                    "confidence": 0.9,
+                    "is_legislative": False,
+                    "reasoning": "Dry-run: OFAC-санкции против иранских бирж.",
+                }
             if "sec charges" in prompt or "sec.gov" in prompt:
                 return {
                     "topics": ["regulation", "exchanges", "licensing"],
@@ -307,7 +316,9 @@ class DryRunLlmClient:
                         priority, score = "high", 75 - index
                     elif event_scale == "cis_major":
                         priority, score = "medium", 55 - index
-                    elif is_privvy:
+                    elif is_privvy or "nobitex" in article_window or (
+                        "ofac" in article_window and "иран" in article_window
+                    ):
                         priority, score = "low", 22 - index
                     elif any(marker in article_window for marker in kz_markers):
                         priority, score = "high", 90 - index
@@ -361,6 +372,16 @@ class DryRunLlmClient:
                     "reasoning": (
                         "Dry-run: перепечатка мелкого US enforcement "
                         "(Privvy) — анти-усиление."
+                    ),
+                }
+            if "nobitex" in prompt or ("ofac" in prompt and "иран" in prompt):
+                return {
+                    "priority": "low",
+                    "score": 20,
+                    "geo_bumped": False,
+                    "reasoning": (
+                        "Dry-run: OFAC-санкции против иранских бирж "
+                        "(третья страна, не TOP-50) — анти-усиление."
                     ),
                 }
             if "депег" in prompt or "$0.94" in prompt:

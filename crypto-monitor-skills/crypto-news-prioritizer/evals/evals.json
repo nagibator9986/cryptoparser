@@ -69,6 +69,17 @@
       ]
     },
     {
+      "id": 8,
+      "name": "ofac-iran-sanctions-downgrade",
+      "prompt": "Prioritize this news. Input: {\"title\": \"США ввели санкции против четырёх иранских криптобирж, включая Nobitex\", \"summary\": \"Управление по контролю за иностранными активами США (OFAC) внесло в санкционный список четыре иранские криптобиржи: Nobitex, Wallex, Bitpin и Ramzinex.\", \"topics\": [\"regulation\"], \"country\": \"US\", \"geo_priority\": 3, \"source_name\": \"forklog.com\", \"key_entities\": [\"OFAC\", \"Nobitex\", \"Wallex\", \"Bitpin\", \"Ramzinex\"]}",
+      "expected_output": "Priority low — санкции против иранских бирж третьего уровня",
+      "assertions": [
+        "Output is valid JSON",
+        "priority == 'low'",
+        "score < 40"
+      ]
+    },
+    {
       "id": 7,
       "name": "kz-major-event-auto-high",
       "prompt": "Prioritize this news. Input: {\"title\": \"AIFC проведёт Astana Finance Days 12-14 ноября\", \"summary\": \"Международный финансовый центр Астана объявил программу форума с участием AFSA, НБРК и крупных банков.\", \"topics\": [\"events\", \"regulation\"], \"country\": \"KZ\", \"geo_priority\": 1, \"source_name\": \"aifc.kz\", \"key_entities\": [\"AIFC\", \"AFSA\", \"НБРК\"], \"event_date\": \"2025-11-12/2025-11-14\", \"event_location\": \"Астана, AIFC\", \"event_scale\": \"kz_major\"}",
