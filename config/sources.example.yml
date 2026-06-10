@@ -3,12 +3,11 @@ sources:
 
   - id: nationalbank-kz
     name: National Bank of Kazakhstan
-    # The previous /rss/news endpoint started returning 404 and silently
-    # starved the digest of KZ regulator content. The press releases page
-    # is the working canonical URL and is parsed via the generic HTML
-    # collector (og:image + article extraction).
+    # The press-releases page is a news *list*, so html_list extracts each
+    # linked release (title + date + body) instead of the page chrome.
     url: https://nationalbank.kz/ru/news/press-relizy
     type: html
+    html_list: true
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -19,6 +18,7 @@ sources:
     name: AFSA
     url: https://afsa.aifc.kz/news
     type: html
+    html_list: true
     enabled: true
     language_hint: en
     country_hint: KZ
@@ -29,6 +29,7 @@ sources:
     name: Astana International Financial Centre
     url: https://aifc.kz/news
     type: html
+    html_list: true
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -37,8 +38,11 @@ sources:
 
   - id: ardfm
     name: ARDFM (Agency for Regulation and Development of Financial Markets)
+    # gov.kz is a JS SPA: static HTML has no news. We query its public Apollo
+    # GraphQL backend instead (gov_kz collector). project slug = ardfm.
     url: https://www.gov.kz/memleket/entities/ardfm?lang=ru
-    type: html
+    type: gov_kz
+    gov_kz_project: ardfm
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -49,6 +53,7 @@ sources:
     name: Astana Hub
     url: https://astanahub.com/ru/
     type: html
+    html_list: true
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -59,6 +64,7 @@ sources:
     name: Kazakhstan Stock Exchange
     url: https://www.kase.kz/ru/news/
     type: html
+    html_list: true
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -91,6 +97,7 @@ sources:
     name: Forbes.kz
     url: https://forbes.kz/finances/finance
     type: html
+    html_list: true
     enabled: true
     language_hint: ru
     country_hint: KZ
@@ -187,3 +194,25 @@ sources:
     country_hint: US
     priority_hint: 3
     poll_interval_minutes: 90
+
+  # Binance News — открытый, но НЕ drop-in источник (см. tz-gap-analysis ФТ-1.1).
+  # Оценка по запросу заказчика: «открытый источник данных?» — да, открытый, но:
+  #   1. Публичный RSS (binance.com/en/square/rss) отдаёт HTTP 202 за Akamai
+  #      bot-protection — серверный клиент не получает валидный RSS.
+  #   2. JSON-эндпоинт bapi (.../cms/article/list/query) отдаёт 200, но статьи
+  #      вложены в data.catalogs[].articles и содержат только title + releaseDate
+  #      (epoch ms), без body, url и изображения. Generic json_api collector
+  #      схлопнул бы их в один URL при дедупе и потерял бы даты.
+  # Поэтому источник требует source-specific collector (построение url из `code`,
+  # парс epoch-ms даты, дозагрузка тела), что вынесено в production backlog.
+  # Содержательно это листинги/анонсы — Tier-3, низкий сигнал для банка РК.
+  # ToS: массовая перепубликация контента Binance регулируется их условиями.
+  - id: binance-news
+    name: Binance News
+    url: https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=20
+    type: json_api
+    enabled: false
+    language_hint: en
+    country_hint: US
+    priority_hint: 3
+    poll_interval_minutes: 120

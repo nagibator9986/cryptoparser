@@ -20,6 +20,13 @@ from crypto_monitor.logging import configure_logging
 from crypto_monitor.models import RawArticle
 from crypto_monitor.normalization import digest_date_or_previous_day
 from crypto_monitor.pipeline import GeminiSkillPipeline
+from crypto_monitor.rates import (
+    RATES_ATTRIBUTION,
+    RATES_TITLE,
+    display_date,
+    format_amount,
+    get_rates_with_fallback,
+)
 from crypto_monitor.skills import SkillLoader
 from crypto_monitor.sources import load_sources
 from crypto_monitor.storage import SqliteStorage
@@ -89,6 +96,45 @@ def collect(
 
 
 @app.command()
+def rates(
+    send_telegram: Annotated[bool, typer.Option("--telegram")] = False,
+    chat_id: Annotated[str | None, typer.Option("--chat-id")] = None,
+) -> None:
+    """Fetch KGD approved-coin rates (qoldau.kz) and print or send them."""
+
+    settings = get_settings()
+    storage = SqliteStorage(settings.db_path)
+    snapshot = get_rates_with_fallback(storage, url=settings.kgd_rates_url)
+    if snapshot is None or not snapshot.rates:
+        console.print("[red]KGD rates unavailable (live fetch failed, no cached copy).[/red]")
+        raise typer.Exit(code=1)
+
+    table = Table(title=f"{RATES_TITLE} (за {display_date(snapshot.date)})")
+    table.add_column("Symbol")
+    table.add_column("Name")
+    table.add_column("KZT", justify="right")
+    table.add_column("USD", justify="right")
+    for rate in snapshot.rates:
+        table.add_row(
+            rate.symbol,
+            rate.name,
+            format_amount(rate.price_kzt),
+            format_amount(rate.price_usd),
+        )
+    console.print(table)
+    console.print(f"[dim]{RATES_ATTRIBUTION}[/dim]")
+    console.print(f"[dim]{snapshot.source_url}[/dim]")
+
+    if send_telegram:
+        TelegramDelivery(settings).send_rates(snapshot, chat_id=chat_id)
+        storage.log_event(
+            "delivery.rates",
+            {"date": snapshot.date, "coins": len(snapshot.rates)},
+        )
+        console.print("Rates sent to Telegram.")
+
+
+@app.command()
 def process(
     limit: Annotated[int, typer.Option("--limit", "-l")] = 50,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -116,6 +162,7 @@ def process(
 def digest(
     digest_date: Annotated[str | None, typer.Option("--date")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l")] = 25,
+    lookback_days: Annotated[int | None, typer.Option("--lookback-days")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     send_email: Annotated[list[str] | None, typer.Option("--email")] = None,
     send_telegram: Annotated[bool, typer.Option("--telegram")] = False,
@@ -125,7 +172,11 @@ def digest(
     settings = get_settings()
     storage = SqliteStorage(settings.db_path)
     effective_date = digest_date_or_previous_day(digest_date)
-    articles = storage.load_processed_articles_for_digest(effective_date, limit=limit)
+    articles = storage.load_processed_articles_for_digest(
+        effective_date,
+        limit=limit,
+        lookback_days=lookback_days or settings.digest_lookback_days,
+    )
     pipeline = build_pipeline(dry_run=dry_run)
     ranked = pipeline.rank_articles_for_digest(
         articles,

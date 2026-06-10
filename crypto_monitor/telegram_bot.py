@@ -32,6 +32,7 @@ from crypto_monitor.normalization import (
     zoneinfo_or_utc,
 )
 from crypto_monitor.pipeline import GeminiSkillPipeline
+from crypto_monitor.rates import get_rates_with_fallback
 from crypto_monitor.skills import SkillLoader
 from crypto_monitor.sources import load_sources
 from crypto_monitor.storage import SqliteStorage
@@ -57,6 +58,7 @@ COMMAND_ALIASES = {
     "cm_run": "crypto_run",
     "cm_search": "crypto_search",
     "cm_schedule": "crypto_schedule",
+    "cm_rates": "crypto_rates",
     "cm_menu": "crypto_menu",
     "crypto_main": "crypto_menu",
     "crypto_panel": "crypto_menu",
@@ -67,6 +69,7 @@ READ_ONLY_COMMANDS = {
     "crypto_settings",
     "crypto_search",
     "crypto_menu",
+    "crypto_rates",
 }
 
 CALLBACK_PREFIX = "cm"
@@ -84,6 +87,7 @@ HELP_TEXT = (
     "── Просмотр (доступно всем) ──\n"
     "/crypto_settings — показать настройки группы\n"
     "/crypto_search <текст> — поиск по архиву публикаций и сводок\n"
+    "/crypto_rates — курсы цифровых активов по данным КГД за предыдущие сутки\n"
     "\n"
     "── Настройка ──\n"
     "/crypto_set <ключ> <значение> — изменить настройку\n"
@@ -97,11 +101,13 @@ HELP_TEXT = (
     "  digest_limit 1..100      — сколько raw-статей брать в обработку\n"
     "  section_limit 1..20      — максимум публикаций в одной секции\n"
     "  total_limit 1..100       — итоговый размер сводки\n"
+    "  lookback 1..14           — окно сводки в днях (1 = строго предыдущие сутки)\n"
     "  min_priority low|medium|high|critical — фильтр по приоритету\n"
     "  dry_run on|off           — режим без вызовов Gemini API\n"
     "  previews on|off          — превью ссылок в Telegram\n"
     "  auto_collect on|off      — авто-сбор перед плановой сводкой\n"
     "  auto_process on|off      — авто-обработка перед плановой сводкой\n"
+    "  send_rates on|off        — слать курсы КГД после плановой сводки\n"
     "\n"
     "── Расписание ──\n"
     "/crypto_schedule — показать текущее расписание\n"
@@ -528,6 +534,7 @@ class TelegramCommandBot:
                     qa_note = _qa_advisory_note(qa)
                     if qa_note:
                         self._send_plain(chat_settings.chat_id, qa_note)
+                    self._maybe_send_scheduled_rates(chat_settings)
                 chat_settings.last_digest_sent_date = digest_date
                 self.storage.save_telegram_chat_settings(chat_settings)
             except Exception:
@@ -646,6 +653,8 @@ class TelegramCommandBot:
             return self._latest_command(chat_settings, args)
         if command == "crypto_search":
             return self._search_command(args)
+        if command == "crypto_rates":
+            return self._rates_command(chat_id)
         if command == "crypto_run":
             chat_settings = self.storage.get_or_create_telegram_chat_settings(
                 chat_id,
@@ -681,6 +690,8 @@ class TelegramCommandBot:
             chat_settings.max_items_per_section = _parse_int(value, minimum=1, maximum=20)
         elif normalized == "total_limit":
             chat_settings.total_max_items = _parse_int(value, minimum=1, maximum=100)
+        elif normalized in {"lookback", "lookback_days", "digest_lookback_days"}:
+            chat_settings.digest_lookback_days = _parse_int(value, minimum=1, maximum=14)
         elif normalized == "min_priority":
             priority = value.lower()
             if priority not in PRIORITY_RANK:
@@ -696,6 +707,8 @@ class TelegramCommandBot:
             chat_settings.auto_collect = _parse_bool(value)
         elif normalized == "auto_process":
             chat_settings.auto_process = _parse_bool(value)
+        elif normalized in {"send_rates", "rates"}:
+            chat_settings.send_rates = _parse_bool(value)
         else:
             raise ValueError(f"Unknown setting: {key}")
 
@@ -952,6 +965,46 @@ class TelegramCommandBot:
             disable_web_page_preview=chat_settings.disable_web_page_preview,
         )
 
+    def _maybe_send_scheduled_rates(self, chat_settings: TelegramChatSettings) -> None:
+        if not chat_settings.send_rates:
+            return
+        try:
+            rate_date = self._send_rates_for_chat(chat_settings)
+        except Exception:
+            logger.exception(
+                "scheduled_rates_send_failed chat_id=%s", chat_settings.chat_id
+            )
+            return
+        if rate_date:
+            chat_settings.last_rates_sent_date = rate_date
+
+    def _rates_command(self, chat_id: str) -> str | None:
+        snapshot = get_rates_with_fallback(
+            self.storage,
+            url=self.settings.kgd_rates_url,
+        )
+        if snapshot is None or not snapshot.rates:
+            return "Курсы КГД временно недоступны. Попробуйте позже."
+        TelegramDelivery(self.settings).send_rates(snapshot, chat_id=chat_id)
+        return None
+
+    def _send_rates_for_chat(self, chat_settings: TelegramChatSettings) -> str | None:
+        """Send the KGD rates message. Returns the data date on success.
+
+        Best-effort: any failure is swallowed by the caller so a rates outage
+        never blocks the news digest, which is the primary deliverable.
+        """
+
+        snapshot = get_rates_with_fallback(
+            self.storage,
+            url=self.settings.kgd_rates_url,
+        )
+        if snapshot is None or not snapshot.rates:
+            logger.warning("scheduled_rates_unavailable chat_id=%s", chat_settings.chat_id)
+            return None
+        TelegramDelivery(self.settings).send_rates(snapshot, chat_id=chat_settings.chat_id)
+        return snapshot.date
+
     def _load_processed_for_chat(
         self,
         chat_settings: TelegramChatSettings,
@@ -963,6 +1016,7 @@ class TelegramCommandBot:
             timezone_name=chat_settings.timezone,
             source_ids=chat_settings.source_ids,
             min_priority=chat_settings.min_priority,
+            lookback_days=chat_settings.digest_lookback_days,
         )
 
     def _filter_raw_articles(
@@ -1632,11 +1686,13 @@ def format_chat_settings(settings: TelegramChatSettings) -> str:
             f"digest_limit: {settings.digest_limit}",
             f"section_limit: {settings.max_items_per_section}",
             f"total_limit: {settings.total_max_items}",
+            f"lookback_days: {settings.digest_lookback_days}",
             f"min_priority: {settings.min_priority}",
             f"dry_run: {_bool_text(settings.dry_run)}",
             f"previews: {previews}",
             f"auto_collect: {_bool_text(settings.auto_collect)}",
             f"auto_process: {_bool_text(settings.auto_process)}",
+            f"send_rates: {_bool_text(settings.send_rates)}",
             f"sources: {source_selection}",
             f"last_sent: {settings.last_digest_sent_date or '-'}",
         ]

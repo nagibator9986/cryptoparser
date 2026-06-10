@@ -21,22 +21,23 @@ Telegram-группы.
 
 | Требование ТЗ | Статус | Комментарий |
 | --- | --- | --- |
-| ФТ-1.1 RSS/HTML/JSON/Telegram/X | Частично | RSS, static HTML, JSON API есть. Telegram/X ingestion не реализован. |
+| ФТ-1.1 RSS/HTML/JSON/Telegram/X | Частично | RSS, static HTML, JSON API, gov.kz GraphQL (`type: gov_kz`, JS-SPA через API без Playwright). Telegram/X ingestion не реализован. Binance News оценён как открытый, но требует source-specific collector (RSS за Akamai 202; bapi JSON без body/url/даты) — добавлен `enabled:false` стабом. |
+| Курсы КГД (запрос заказчика) | Реализовано | Ежедневная стоимость approved-11 монет с token.qoldau.kz (нет API → HTML-парсинг), KZT+USD, подпись «Согласно публикации КГД … за предыдущие сутки», отправка после дайджеста. `crypto-monitor rates`, `/crypto_rates`, `send_rates`. |
 | ФТ-1.2 Индивидуальное расписание источников | Частично | `poll_interval_minutes` есть в конфиге; отдельного scheduler по источникам нет. |
 | ФТ-1.3 Сырой ответ источника | Частично | В payload сохраняется excerpt/metadata ответа, не отдельный object store. |
 | ФТ-1.4 Алерт при недоступности >2 часов | Частично | Добавлен статус источников и ошибки; внешнего мониторинга/alertmanager нет. |
 | ФТ-1.5 Изоляция парсеров | Реализовано | Ошибка одного источника логируется и не ломает сбор остальных. |
 | ФТ-2.1 Нормализация полей | Реализовано | title/body/date/url/source/language сохраняются. |
 | ФТ-2.2 Asia/Almaty timezone | Реализовано для MVP | Даты нормализуются в `Asia/Almaty`. |
-| ФТ-2.3 Очистка текста | Реализовано для MVP | BeautifulSoup + JSON-LD + Open Graph; динамические страницы остаются на Playwright для прод. |
-| ФТ-2.4 Автоопределение языка | Реализовано для MVP | Добавлен эвристический ru/en/kk detector. |
+| ФТ-2.3 Очистка текста | Реализовано для MVP | BeautifulSoup + JSON-LD + Open Graph. `html_list` извлекает отдельные статьи из новостных лент KZ-регуляторов (заголовок+дата+тело по каждой ссылке), а не «шапку» страницы. JS-страницы (ardfm/gov.kz) остаются на Playwright. |
+| ФТ-2.4 Автоопределение языка | Реализовано для MVP | Эвристический ru/en/kk detector; казахский (по буквам) перебивает неверный `language_hint` источника. |
 | ФТ-3.1 URL-дубли | Реализовано | Добавлен exact URL dedup с очисткой tracking-параметров. |
 | ФТ-3.2 Semantic dedup | Частично | LLM-skill кластеризует; embeddings/MinHash нет. |
 | ФТ-3.3 Кластеры событий | Частично | Skill возвращает canonical IDs; хранение links-to-duplicates не выделено в схему. |
 | ФТ-4 Classification | Реализовано | Через `crypto-news-classifier`. Тег `events` и поля `is_legislative`/`event_*` добавлены в v1.1. |
 | ФТ-5 Summarization | Реализовано | Через `crypto-news-summarizer`, с QA skill. |
 | ФТ-6 Приоритизация и сортировка | Реализовано для MVP | Сортировка: geo priority, priority, score, chronology. Авто-эскалация для законодательства РК/СНГ, авто-оценка для мероприятий по `event_scale`, анти-усиление для агрегаторных перепечаток мелких US/EU enforcement (v1.1). Квоты KZ/CIS/legislation enforced в коде (`_enforce_quotas`). |
-| ФТ-7.1 Сводка за предыдущие сутки | Реализовано | CLI/Telegram используют date-filter по локальному дню. |
+| ФТ-7.1 Сводка за предыдущие сутки | Реализовано | По умолчанию окно = предыдущие сутки (`digest_lookback_days=1`). Настраиваемое окно `1..14` дней для захвата редко-публикующихся KZ/CIS источников. |
 | ФТ-7.2 Разделы сводки | Реализовано | 9 секций в local renderer и digest skill: Законодательство (защищён), Регулирование РК, Регулирование СНГ, CBDC, Банки, Биржи, Технологии, Международные, Мероприятия. |
 | ФТ-7.3 Дата в блоке | Реализовано | Дата публикации выводится в HTML/plain/Telegram fallback. |
 | ФТ-7.4 Доставка 09:00 Алматы | Частично | Telegram bot отправляет в 09:00 ±5 минут; системного scheduler для email нет. |

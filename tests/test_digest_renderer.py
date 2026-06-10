@@ -55,6 +55,29 @@ def test_local_digest_builds_structured_telegram_articles_with_image() -> None:
     assert digest.stats.get("with_image") == 1
 
 
+def test_estimated_date_renders_as_unknown_not_a_fabricated_date() -> None:
+    # Dateless KZ-regulator items get a collection-time published_at for
+    # windowing, but the card must not show it as a real (and later-than-digest)
+    # publish date — that tripped the QA date-consistency check live.
+    article = _article(
+        "afsa",
+        title="AFSA выпустило руководство по сборам",
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=80,
+    )
+    article.published_at = datetime(2026, 6, 10, 9, 0, tzinfo=ZoneInfo("Asia/Almaty"))
+    article.published_at_estimated = True
+
+    digest = render_digest_locally([article], digest_date="2026-06-09")
+
+    assert "10.06.2026" not in digest.plain_text  # no fabricated date leaks
+    assert "дата не указана" in digest.plain_text
+    block = digest.telegram_articles[0]
+    assert block.published_at_text == "дата не указана"
+
+
 def test_legislation_section_shows_first_and_includes_stage_prefix() -> None:
     legislation = _article(
         "leg",

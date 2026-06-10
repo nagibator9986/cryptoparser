@@ -6,7 +6,13 @@ import re
 import httpx
 
 from crypto_monitor.config import Settings
-from crypto_monitor.models import Digest, TelegramArticleBlock
+from crypto_monitor.models import CryptoRatesSnapshot, Digest, TelegramArticleBlock
+from crypto_monitor.rates import (
+    RATES_ATTRIBUTION,
+    RATES_TITLE,
+    display_date,
+    format_amount,
+)
 from crypto_monitor.retry import retry_call
 
 logger = logging.getLogger(__name__)
@@ -62,6 +68,41 @@ class TelegramDelivery:
             target_chat_id,
             disable_web_page_preview=disable_web_page_preview,
         )
+
+    def send_rates(
+        self,
+        snapshot: CryptoRatesSnapshot,
+        chat_id: str | None = None,
+    ) -> None:
+        target_chat_id = chat_id or self.settings.telegram_chat_id
+        if not self.configured(target_chat_id):
+            raise RuntimeError("Telegram is not configured")
+        token = self.settings.telegram_bot_token
+        assert token
+        assert target_chat_id
+        try:
+            self._send_text(
+                token,
+                target_chat_id,
+                render_rates_markdown_v2(snapshot),
+                parse_mode="MarkdownV2",
+                disable_web_page_preview=True,
+                retry=False,
+            )
+        except httpx.HTTPStatusError as exc:
+            # A MarkdownV2 escaping miss surfaces as 400; resend the plain
+            # text so the rates still reach the group.
+            if exc.response.status_code != 400:
+                raise
+            from crypto_monitor.rates import render_rates_plain
+
+            self._send_text(
+                token,
+                target_chat_id,
+                render_rates_plain(snapshot),
+                parse_mode=None,
+                disable_web_page_preview=True,
+            )
 
     def _send_structured(
         self,
@@ -193,6 +234,7 @@ class TelegramDelivery:
         *,
         parse_mode: str | None,
         disable_web_page_preview: bool,
+        retry: bool = True,
     ) -> None:
         def attempt() -> None:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -206,6 +248,11 @@ class TelegramDelivery:
             response = self._client.post(url, json=payload)
             response.raise_for_status()
 
+        if not retry:
+            # A MarkdownV2 escaping miss yields a deterministic 400; retrying it
+            # only delays the plain-text fallback. Caller handles the error.
+            attempt()
+            return
         retry_call(
             attempt,
             attempts=3,
@@ -242,6 +289,26 @@ class TelegramDelivery:
             retry_exceptions=(httpx.HTTPError,),
             delay_for_exception=telegram_retry_after,
         )
+
+
+def render_rates_markdown_v2(snapshot: CryptoRatesSnapshot) -> str:
+    header = f"*{escape_md(RATES_TITLE)}*"
+    subheader = f"_{escape_md('за ' + display_date(snapshot.date))}_"
+    lines = [header, subheader, ""]
+    for rate in snapshot.rates:
+        kzt = escape_md(f"{format_amount(rate.price_kzt)} ₸")
+        usd = (
+            f" \\| {escape_md('$' + format_amount(rate.price_usd))}"
+            if rate.price_usd is not None
+            else ""
+        )
+        symbol = escape_md(rate.symbol)
+        name = escape_md(rate.name)
+        lines.append(f"`{symbol}` {name} — {kzt}{usd}")
+    lines.append("")
+    lines.append(f"_{escape_md(RATES_ATTRIBUTION)}_")
+    lines.append(f"[{escape_md('Источник: КГД / qoldau.kz')}]({snapshot.source_url})")
+    return "\n".join(lines)
 
 
 def telegram_retry_after(exc: Exception) -> float | None:

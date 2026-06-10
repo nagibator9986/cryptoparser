@@ -7,6 +7,14 @@ from html import escape
 from crypto_monitor.models import Digest, ProcessedArticle, TelegramArticleBlock
 from crypto_monitor.normalization import format_article_date
 
+
+def _article_date_text(article: ProcessedArticle) -> str:
+    # Never present a collection-time fallback as a real publish date: it would
+    # show a date later than the digest and trip the QA date-consistency check.
+    if article.published_at_estimated:
+        return "дата не указана"
+    return format_article_date(article.published_at)
+
 # Articles with topics containing 'events' are dedicated to the Events
 # section regardless of which other tags they carry. We bake the exclusion
 # directly into the regulation/licensing predicates so that a forum
@@ -220,7 +228,7 @@ def _build_telegram_articles(
                     summary=article.summary or article.body[:600],
                     source_name=article.source_name,
                     source_url=article.source_url,
-                    published_at_text=format_article_date(article.published_at),
+                    published_at_text=_article_date_text(article),
                     priority=(article.priority or "medium").lower(),
                     image_url=article.image_url,
                     event_date=article.event_date,
@@ -296,7 +304,7 @@ def _render_html(sections: OrderedDict[str, list[ProcessedArticle]], digest_date
                 f"<p>{escape(article.summary or article.body[:500])}</p>"
                 f'<p style="font-size:12px;color:#666;">'
                 f"Источник: {escape(article.source_name)} "
-                f"| Дата: {escape(format_article_date(article.published_at))} "
+                f"| Дата: {escape(_article_date_text(article))} "
                 f"| <a href=\"{escape(article.source_url)}\">Читать оригинал</a></p>"
                 "</article>"
             )
@@ -329,7 +337,7 @@ def _render_plain(sections: OrderedDict[str, list[ProcessedArticle]], digest_dat
             lines.append(article.summary or article.body[:500])
             lines.append(
                 f"Источник: {article.source_name} | "
-                f"Дата: {format_article_date(article.published_at)} | "
+                f"Дата: {_article_date_text(article)} | "
                 f"{article.source_url}"
             )
             lines.append("")
@@ -353,7 +361,7 @@ def _render_telegram_blocks(
             title = _escape_md(base_title)
             summary = _escape_md(article.summary or article.body[:500])
             source = _escape_md(article.source_name)
-            published = _escape_md(format_article_date(article.published_at))
+            published = _escape_md(_article_date_text(article))
             marker = PRIORITY_MARKERS.get(article.priority or "medium", "MEDIUM")
             meta_line = ""
             if article.event_date or article.event_location:

@@ -4,6 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
+from crypto_monitor.collectors.gov_kz import GovKzCollector
 from crypto_monitor.collectors.html import HtmlCollector
 from crypto_monitor.collectors.json_api import JsonApiCollector
 from crypto_monitor.collectors.rss import RssCollector, build_http_client
@@ -26,6 +27,7 @@ class CollectorRunner:
         self.rss = RssCollector(client=self._client)
         self.html = HtmlCollector(client=self._client)
         self.json_api = JsonApiCollector(client=self._client)
+        self.gov_kz = GovKzCollector(client=self._client)
 
     def collect_all(
         self,
@@ -70,6 +72,8 @@ class CollectorRunner:
             return self.html.collect(source, limit=limit)
         if source.type == SourceType.JSON_API:
             return self.json_api.collect(source, limit=limit)
+        if source.type == SourceType.GOV_KZ:
+            return self.gov_kz.collect(source, limit=limit)
         raise NotImplementedError(
             f"Collector for {source.type!s} is not implemented in the local MVP. "
             "Telegram, X, and JSON API connectors should be added as source-specific plugins."

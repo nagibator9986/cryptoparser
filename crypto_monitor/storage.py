@@ -7,13 +7,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from crypto_monitor.models import (
+    CryptoRatesSnapshot,
     Digest,
     ProcessedArticle,
     RawArticle,
     SourceConfig,
     TelegramChatSettings,
 )
-from crypto_monitor.normalization import is_datetime_in_day
+from crypto_monitor.normalization import is_datetime_in_window
 
 
 class SqliteStorage:
@@ -61,6 +62,12 @@ class SqliteStorage:
 
                 create table if not exists digests (
                     digest_date text primary key,
+                    payload text not null,
+                    created_at text not null default current_timestamp
+                );
+
+                create table if not exists crypto_rates (
+                    rate_date text primary key,
                     payload text not null,
                     created_at text not null default current_timestamp
                 );
@@ -184,6 +191,7 @@ class SqliteStorage:
         timezone_name: str = "Asia/Almaty",
         source_ids: list[str] | None = None,
         min_priority: str | None = None,
+        lookback_days: int = 1,
     ) -> list[ProcessedArticle]:
         articles = self.load_processed_articles(limit=None)
         selected_sources = set(source_ids or [])
@@ -193,7 +201,9 @@ class SqliteStorage:
         for article in articles:
             if selected_sources and article.source_id not in selected_sources:
                 continue
-            if not is_datetime_in_day(article.published_at, digest_date, timezone_name):
+            if not is_datetime_in_window(
+                article.published_at, digest_date, lookback_days, timezone_name
+            ):
                 continue
             if priority_rank.get(article.priority or "medium", 2) < min_rank:
                 continue
@@ -244,6 +254,26 @@ class SqliteStorage:
                 }
             )
         return result
+
+    def save_rates_snapshot(self, snapshot: CryptoRatesSnapshot) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                insert into crypto_rates (rate_date, payload, created_at)
+                values (?, ?, current_timestamp)
+                on conflict(rate_date) do update set
+                    payload=excluded.payload,
+                    created_at=current_timestamp
+                """,
+                (snapshot.date, snapshot.model_dump_json()),
+            )
+
+    def load_latest_rates_snapshot(self) -> CryptoRatesSnapshot | None:
+        with self._connect() as db:
+            row = db.execute(
+                "select payload from crypto_rates order by rate_date desc limit 1"
+            ).fetchone()
+        return CryptoRatesSnapshot.model_validate_json(row["payload"]) if row else None
 
     def log_event(self, event_type: str, payload: dict) -> None:
         with self._connect() as db:

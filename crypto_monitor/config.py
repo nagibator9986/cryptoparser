@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     gemini_max_retries: int = Field(default=3, alias="GEMINI_MAX_RETRIES")
     process_concurrency: int = Field(default=5, alias="CRYPTO_MONITOR_PROCESS_CONCURRENCY")
     collect_concurrency: int = Field(default=8, alias="CRYPTO_MONITOR_COLLECT_CONCURRENCY")
+    digest_lookback_days: int = Field(default=1, alias="CRYPTO_MONITOR_DIGEST_LOOKBACK_DAYS")
     db_path: Path = Field(
         default=Path("./data/crypto_monitor.sqlite3"),
         alias="CRYPTO_MONITOR_DB_PATH",
@@ -45,6 +46,11 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
+
+    kgd_rates_url: str = Field(
+        default="https://token.qoldau.kz/ru/references/crypto-currency/list",
+        alias="CRYPTO_MONITOR_KGD_RATES_URL",
+    )
 
 
 @lru_cache
