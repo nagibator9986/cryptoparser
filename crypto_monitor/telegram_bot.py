@@ -41,6 +41,11 @@ logger = logging.getLogger(__name__)
 
 PRIORITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 PriorityName = Literal["low", "medium", "high", "critical"]
+# When the strict previous-day/today window yields nothing, retry with this
+# wider window before showing the quiet-day notice (dedupe still prevents
+# repeats). Keeps the daily default at "previous day" but avoids an empty
+# digest when the freshly collected news is a few days old.
+WIDE_FALLBACK_LOOKBACK_DAYS = 7
 TRUE_VALUES = {"1", "true", "yes", "on", "да", "вкл", "enable", "enabled"}
 FALSE_VALUES = {"0", "false", "no", "off", "нет", "выкл", "disable", "disabled"}
 
@@ -515,7 +520,9 @@ class TelegramCommandBot:
                     self._collect_for_chat(chat_settings)
                 if chat_settings.auto_process:
                     self._process_for_chat(chat_settings)
-                digest, qa = self._build_digest_for_chat(chat_settings, digest_date)
+                digest, qa, delivered_ids = self._build_digest_for_chat(
+                    chat_settings, digest_date
+                )
                 if _is_hard_qa_block(qa):
                     issues_block = _format_qa_issues(qa)
                     text = (
@@ -530,6 +537,9 @@ class TelegramCommandBot:
                     )
                 else:
                     self._send_digest(chat_settings, digest)
+                    self.storage.record_delivered_articles(
+                        chat_settings.chat_id, delivered_ids
+                    )
                     sent += 1
                     qa_note = _qa_advisory_note(qa)
                     if qa_note:
@@ -838,7 +848,7 @@ class TelegramCommandBot:
 
     def _digest_command(self, chat_settings: TelegramChatSettings, args: str) -> str:
         digest_date, force = _parse_digest_args(args)
-        digest, qa = self._build_digest_for_chat(chat_settings, digest_date)
+        digest, qa, delivered_ids = self._build_digest_for_chat(chat_settings, digest_date)
         if _is_hard_qa_block(qa) and not force:
             issues_block = _format_qa_issues(qa)
             return (
@@ -849,6 +859,7 @@ class TelegramCommandBot:
                 f"/crypto_digest {digest.digest_date} force"
             )
         self._send_digest(chat_settings, digest)
+        self.storage.record_delivered_articles(chat_settings.chat_id, delivered_ids)
         qa_note = _qa_advisory_note(qa)
         rate_date = self._maybe_send_rates(chat_settings)
         rates_note = (
@@ -904,10 +915,16 @@ class TelegramCommandBot:
         self,
         chat_settings: TelegramChatSettings,
         digest_date: str | None,
-    ) -> tuple[Digest, QaResult]:
+    ) -> tuple[Digest, QaResult, list[str]]:
         requested_explicitly = digest_date is not None
         effective_date = digest_date or self._default_digest_date_for_chat(chat_settings)
-        articles = self._load_processed_for_chat(chat_settings, effective_date)
+        # Never repeat a publication already shown in a previous digest for
+        # this chat. IDs are stable (hash of source + url), so this dedupes
+        # across re-collections too.
+        delivered = self.storage.load_delivered_article_ids(chat_settings.chat_id)
+        articles = self._load_processed_for_chat(
+            chat_settings, effective_date, exclude_ids=delivered
+        )
         if not articles and not requested_explicitly:
             # Fresh groups typically run /crypto_collect+process the same day
             # they ask for a digest, so the default "previous day" window is
@@ -919,10 +936,21 @@ class TelegramCommandBot:
                 .isoformat()
             )
             if today_iso != effective_date:
-                today_articles = self._load_processed_for_chat(chat_settings, today_iso)
+                today_articles = self._load_processed_for_chat(
+                    chat_settings, today_iso, exclude_ids=delivered
+                )
                 if today_articles:
                     effective_date = today_iso
                     articles = today_articles
+        if not articles:
+            # Widen the window before declaring a quiet day: a fresh user often
+            # has collected news older than the strict previous-day window.
+            wide = max(chat_settings.digest_lookback_days, WIDE_FALLBACK_LOOKBACK_DAYS)
+            articles = self._load_processed_for_chat(
+                chat_settings, effective_date, lookback_days=wide, exclude_ids=delivered
+            )
+
+        delivered_ids: list[str] = []
         if not articles:
             digest = render_digest_locally(
                 [],
@@ -939,18 +967,25 @@ class TelegramCommandBot:
             )
         else:
             pipeline = self.pipeline_factory(chat_settings.dry_run)
-            articles = pipeline.rank_articles_for_digest(
+            ranked = pipeline.rank_articles_for_digest(
                 articles,
                 digest_date=effective_date,
                 total_max_items=chat_settings.total_max_items,
             )
             digest = pipeline.build_digest(
-                articles,
+                ranked,
                 digest_date=effective_date,
                 max_items_per_section=chat_settings.max_items_per_section,
                 total_max_items=chat_settings.total_max_items,
             )
-            qa = pipeline.quality_check(digest, articles)
+            qa = pipeline.quality_check(digest, ranked)
+            # Record only what is ACTUALLY rendered (build_digest drops LOW
+            # items and trims), matched by source_url. Empty on a quiet day.
+            rendered_urls = {
+                b.source_url for b in digest.telegram_articles if b.source_url
+            }
+            delivered_ids = [a.id for a in ranked if a.source_url in rendered_urls]
+            articles = ranked
 
         self.storage.save_digest(digest)
         self.storage.log_event(
@@ -963,7 +998,7 @@ class TelegramCommandBot:
                 "dry_run": chat_settings.dry_run,
             },
         )
-        return digest, qa
+        return digest, qa, delivered_ids
 
     def _send_digest(self, chat_settings: TelegramChatSettings, digest: Digest) -> None:
         TelegramDelivery(self.settings).send(
@@ -1022,15 +1057,21 @@ class TelegramCommandBot:
         self,
         chat_settings: TelegramChatSettings,
         digest_date: str,
+        *,
+        lookback_days: int | None = None,
+        exclude_ids: set[str] | None = None,
     ) -> list[ProcessedArticle]:
-        return self.storage.load_processed_articles_for_digest(
+        articles = self.storage.load_processed_articles_for_digest(
             digest_date,
             limit=chat_settings.digest_limit,
             timezone_name=chat_settings.timezone,
             source_ids=chat_settings.source_ids,
             min_priority=chat_settings.min_priority,
-            lookback_days=chat_settings.digest_lookback_days,
+            lookback_days=lookback_days or chat_settings.digest_lookback_days,
         )
+        if exclude_ids:
+            articles = [a for a in articles if a.id not in exclude_ids]
+        return articles
 
     def _filter_raw_articles(
         self,

@@ -5,7 +5,7 @@ from typing import Any, cast
 import httpx
 
 from crypto_monitor.config import Settings
-from crypto_monitor.models import QaResult
+from crypto_monitor.models import ProcessedArticle, QaResult
 from crypto_monitor.storage import SqliteStorage
 from crypto_monitor.telegram_bot import (
     TelegramBotApi,
@@ -339,6 +339,47 @@ def test_telegram_search_command_is_read_only(tmp_path) -> None:
 
     assert "Результаты поиска" in api.sent[-1]["text"]
     assert storage.load_telegram_chat_settings("-1001") is None
+
+
+def test_digest_excludes_already_delivered_articles(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    api = FakeTelegramApi()
+    bot = TelegramCommandBot(
+        settings=_settings(tmp_path),
+        storage=storage,
+        api=cast(TelegramBotApi, api),
+        admin_checker=lambda chat_id, user_id: True,
+    )
+    settings = storage.get_or_create_telegram_chat_settings("-1001")
+    storage.save_processed_articles(
+        [_processed("p1", "2026-05-26"), _processed("p2", "2026-05-26")]
+    )
+
+    assert {a.id for a in bot._load_processed_for_chat(settings, "2026-05-26")} == {"p1", "p2"}
+
+    # Once p1 has been delivered, it must not resurface in the next digest.
+    storage.record_delivered_articles("-1001", ["p1"])
+    delivered = storage.load_delivered_article_ids("-1001")
+    remaining = bot._load_processed_for_chat(settings, "2026-05-26", exclude_ids=delivered)
+    assert {a.id for a in remaining} == {"p2"}
+
+
+def _processed(article_id: str, day: str) -> ProcessedArticle:
+    return ProcessedArticle(
+        id=article_id,
+        source_id="afsa-aifc",
+        source_name="AFSA",
+        source_url=f"https://afsa.aifc.kz/{article_id}",
+        title=f"AFSA news {article_id}",
+        body="Regulatory update body text for the digest window test.",
+        published_at=datetime.fromisoformat(f"{day}T09:00:00+05:00"),
+        language="ru",
+        topics=["regulation"],
+        country="KZ",
+        geo_priority=1,
+        priority="high",
+        score=80,
+    )
 
 
 def test_telegram_default_digest_date_uses_previous_almaty_day(tmp_path) -> None:

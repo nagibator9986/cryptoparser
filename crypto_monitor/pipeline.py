@@ -364,7 +364,24 @@ class GeminiSkillPipeline:
             )
             response.setdefault("digest_date", payload["digest_date"])
             response.setdefault("stats", {"total_articles": len(articles)})
-            return Digest.model_validate(response)
+            digest = Digest.model_validate(response)
+            if not digest.telegram_articles:
+                # The skill may return only html/segments. Structured per-article
+                # Telegram cards (and the delivered-articles dedupe, which keys on
+                # rendered source_urls) both rely on telegram_articles, so always
+                # populate them from the local renderer over the same article set.
+                local = render_digest_locally(
+                    articles,
+                    digest_date=resolved_date,
+                    max_items_per_section=max_items_per_section,
+                    total_max_items=total_max_items,
+                )
+                digest.telegram_articles = local.telegram_articles
+                if not digest.header_text:
+                    digest.header_text = local.header_text
+                if not digest.footer_text:
+                    digest.footer_text = local.footer_text
+            return digest
         except (JsonExtractionError, ValidationError, ValueError) as exc:
             logger.warning("digest_builder_failed_using_local_renderer error=%s", exc)
             return render_digest_locally(

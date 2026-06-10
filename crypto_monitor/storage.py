@@ -72,6 +72,15 @@ class SqliteStorage:
                     created_at text not null default current_timestamp
                 );
 
+                create table if not exists delivered_articles (
+                    chat_id text not null,
+                    article_id text not null,
+                    sent_at text not null default current_timestamp,
+                    primary key (chat_id, article_id)
+                );
+                create index if not exists idx_delivered_articles_chat
+                    on delivered_articles (chat_id, sent_at desc);
+
                 create table if not exists audit_events (
                     id integer primary key autoincrement,
                     event_type text not null,
@@ -274,6 +283,32 @@ class SqliteStorage:
                 "select payload from crypto_rates order by rate_date desc limit 1"
             ).fetchone()
         return CryptoRatesSnapshot.model_validate_json(row["payload"]) if row else None
+
+    def record_delivered_articles(self, chat_id: str, article_ids: Iterable[str]) -> None:
+        ids = [aid for aid in article_ids if aid]
+        if not ids:
+            return
+        with self._connect() as db:
+            db.executemany(
+                """
+                insert into delivered_articles (chat_id, article_id, sent_at)
+                values (?, ?, current_timestamp)
+                on conflict(chat_id, article_id) do update set sent_at=current_timestamp
+                """,
+                [(chat_id, aid) for aid in ids],
+            )
+
+    def load_delivered_article_ids(self, chat_id: str, within_days: int = 30) -> set[str]:
+        cutoff = (datetime.now(UTC) - timedelta(days=max(1, within_days))).isoformat()
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                select article_id from delivered_articles
+                where chat_id = ? and sent_at >= ?
+                """,
+                (chat_id, cutoff),
+            ).fetchall()
+        return {row["article_id"] for row in rows}
 
     def log_event(self, event_type: str, payload: dict) -> None:
         with self._connect() as db:

@@ -110,7 +110,7 @@ their content in Python.
 
 ### Testing
 
-- `python3 -m pytest -q` must pass. Currently 93 tests; do not regress.
+- `python3 -m pytest -q` must pass. Currently 95 tests; do not regress.
 - `crypto-monitor evals --dry-run` must pass. Currently 100% on all 8 skills.
 - `ruff check crypto_monitor tests` must be clean.
 - Real integration tests against Gemini are not part of the default suite —
@@ -305,6 +305,30 @@ body, date, `heropic` image, `/press/news/details/<slug>` URL). This is an
 undocumented endpoint — keep `_size` modest and tolerate schema drift (the
 collector raises on a GraphQL `errors` payload so `source_status` records it).
 Any other gov.kz entity can be added the same way (set `gov_kz_project`).
+
+## Digest: no repeats, no empty-on-stale (delivered dedupe + widen fallback)
+
+Two behaviours keep the per-chat digest useful day to day:
+
+1. **Never repeat a publication.** Every article actually rendered into a sent
+   digest is recorded in `delivered_articles (chat_id, article_id)`
+   (`storage.record_delivered_articles`). `_build_digest_for_chat` excludes the
+   last 30 days of delivered IDs before ranking, so the next digest shows only
+   new material. Article IDs are stable (hash of source + url/slug), so this
+   dedupes across re-collections too. Recording happens AFTER a successful send
+   in both the manual `_digest_command` and the scheduler — never on a QA block
+   or a quiet day.
+2. **Widen before declaring a quiet day.** The default window is the strict
+   previous day (`digest_lookback_days=1`). When that and the today fallback are
+   both empty, `_build_digest_for_chat` retries once with
+   `WIDE_FALLBACK_LOOKBACK_DAYS` (7) so a fresh chat whose collected news is a
+   few days old still gets a digest. Dedupe (above) prevents the wider window
+   from resurfacing already-shown items.
+
+These rely on `Digest.telegram_articles` reflecting what was actually rendered.
+`pipeline.build_digest` therefore ALWAYS populates `telegram_articles` (from the
+local renderer over the same article set) even when the Gemini digest-builder
+returns only html/segments — this also guarantees per-article sendPhoto cards.
 
 ## Binance News — assessed, intentionally a stub
 

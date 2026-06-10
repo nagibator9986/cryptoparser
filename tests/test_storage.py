@@ -27,6 +27,21 @@ def test_storage_digest_archive_and_audit(tmp_path) -> None:
     assert storage.export_json()["audit_events"] == 1
 
 
+def test_delivered_articles_roundtrip_and_dedup(tmp_path) -> None:
+    storage = SqliteStorage(tmp_path / "db.sqlite3")
+    assert storage.load_delivered_article_ids("-1001") == set()
+
+    storage.record_delivered_articles("-1001", ["a1", "a2", ""])  # blanks ignored
+    storage.record_delivered_articles("-1001", ["a2", "a3"])  # a2 idempotent
+    storage.record_delivered_articles("-2002", ["b1"])  # other chat isolated
+
+    assert storage.load_delivered_article_ids("-1001") == {"a1", "a2", "a3"}
+    assert storage.load_delivered_article_ids("-2002") == {"b1"}
+    # Recording the empty/none-only set is a no-op.
+    storage.record_delivered_articles("-1001", [])
+    assert storage.load_delivered_article_ids("-1001") == {"a1", "a2", "a3"}
+
+
 def test_storage_telegram_chat_settings(tmp_path) -> None:
     storage = SqliteStorage(tmp_path / "db.sqlite3")
     settings = storage.get_or_create_telegram_chat_settings("-1001", "Crypto Desk")
