@@ -534,7 +534,7 @@ class TelegramCommandBot:
                     qa_note = _qa_advisory_note(qa)
                     if qa_note:
                         self._send_plain(chat_settings.chat_id, qa_note)
-                    self._maybe_send_scheduled_rates(chat_settings)
+                    self._maybe_send_rates(chat_settings)
                 chat_settings.last_digest_sent_date = digest_date
                 self.storage.save_telegram_chat_settings(chat_settings)
             except Exception:
@@ -850,10 +850,17 @@ class TelegramCommandBot:
             )
         self._send_digest(chat_settings, digest)
         qa_note = _qa_advisory_note(qa)
+        rate_date = self._maybe_send_rates(chat_settings)
+        rates_note = (
+            f"\nКурсы цифровых активов (КГД, за {rate_date}) отправлены."
+            if rate_date
+            else ""
+        )
         return (
             f"Сводка за {digest.digest_date} отправлена. "
             f"QA={qa.recommendation}, severity={qa.severity}."
             + (f"\n{qa_note}" if qa_note else "")
+            + rates_note
         )
 
     def _latest_command(self, chat_settings: TelegramChatSettings, args: str) -> str:
@@ -965,18 +972,24 @@ class TelegramCommandBot:
             disable_web_page_preview=chat_settings.disable_web_page_preview,
         )
 
-    def _maybe_send_scheduled_rates(self, chat_settings: TelegramChatSettings) -> None:
+    def _maybe_send_rates(self, chat_settings: TelegramChatSettings) -> str | None:
+        """Send the KGD rates after a digest when enabled. Returns the data date.
+
+        Used by both the scheduler and the manual /crypto_digest path so rates
+        always follow the digest, not only on the timed run. Best-effort: a
+        rates outage never affects the digest that was already delivered.
+        """
+
         if not chat_settings.send_rates:
-            return
+            return None
         try:
             rate_date = self._send_rates_for_chat(chat_settings)
         except Exception:
-            logger.exception(
-                "scheduled_rates_send_failed chat_id=%s", chat_settings.chat_id
-            )
-            return
+            logger.exception("rates_send_failed chat_id=%s", chat_settings.chat_id)
+            return None
         if rate_date:
             chat_settings.last_rates_sent_date = rate_date
+        return rate_date
 
     def _rates_command(self, chat_id: str) -> str | None:
         snapshot = get_rates_with_fallback(
